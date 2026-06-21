@@ -1,5 +1,6 @@
 "use client"
 
+import { useState } from "react"
 import { useQuery } from "@tanstack/react-query"
 import Link from "next/link"
 import { buttonVariants } from "@/components/ui/button"
@@ -9,6 +10,16 @@ import { Separator } from "@/components/ui/separator"
 import { listMatches, getRecentMatches } from "@/lib/api"
 import { getSessionToken } from "@/lib/auth"
 import type { MatchSummary, MatchStatus } from "@/lib/types"
+
+const ALL_STATUSES: MatchStatus[] = ["IN_PROGRESS", "NOT_STARTED", "COMPLETED", "ABANDONED", "CANCELLED"]
+
+const STATUS_LABEL: Record<MatchStatus, string> = {
+  IN_PROGRESS: "In Progress",
+  NOT_STARTED: "Not Started",
+  COMPLETED: "Completed",
+  ABANDONED: "Abandoned",
+  CANCELLED: "Cancelled",
+}
 
 const STATUS_VARIANT: Record<MatchStatus, "default" | "secondary" | "destructive" | "outline"> = {
   NOT_STARTED: "outline",
@@ -45,8 +56,47 @@ function MatchCard({ match }: { match: MatchSummary }) {
   )
 }
 
+function StatusFilter({
+  selected,
+  onChange,
+}: {
+  selected: MatchStatus | null
+  onChange: (s: MatchStatus | null) => void
+}) {
+  return (
+    <div className="flex flex-wrap gap-2">
+      <button
+        type="button"
+        onClick={() => onChange(null)}
+        className={`px-3 py-1 rounded-full text-sm border transition-colors ${
+          selected === null
+            ? "bg-foreground text-background border-foreground"
+            : "border-border text-muted-foreground hover:text-foreground"
+        }`}
+      >
+        All
+      </button>
+      {ALL_STATUSES.map((s) => (
+        <button
+          key={s}
+          type="button"
+          onClick={() => onChange(selected === s ? null : s)}
+          className={`px-3 py-1 rounded-full text-sm border transition-colors ${
+            selected === s
+              ? "bg-foreground text-background border-foreground"
+              : "border-border text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          {STATUS_LABEL[s]}
+        </button>
+      ))}
+    </div>
+  )
+}
+
 export default function DashboardPage() {
   const token = getSessionToken()!
+  const [filter, setFilter] = useState<MatchStatus | null>(null)
 
   const {
     data: myMatches = [],
@@ -66,6 +116,9 @@ export default function DashboardPage() {
     queryFn: () => getRecentMatches(token),
   })
 
+  const filteredMyMatches = filter ? myMatches.filter((m) => m.status === filter) : myMatches
+  const filteredRecentMatches = filter ? recentMatches.filter((m) => m.status === filter) : recentMatches
+
   return (
     <div className="space-y-8">
       <section className="space-y-4">
@@ -74,13 +127,15 @@ export default function DashboardPage() {
           <Link href="/matches/new" className={buttonVariants()}>Host Match</Link>
         </div>
 
+        <StatusFilter selected={filter} onChange={setFilter} />
+
         {myLoading && <p className="text-muted-foreground">Loading…</p>}
         {myError && <p className="text-destructive text-sm">Failed to load matches: {myError.message}</p>}
-        {!myLoading && !myError && myMatches.length === 0 && (
-          <p className="text-muted-foreground">No matches hosted yet.</p>
+        {!myLoading && !myError && filteredMyMatches.length === 0 && (
+          <p className="text-muted-foreground">{filter ? "No matches with this status." : "No matches hosted yet."}</p>
         )}
         <div className="space-y-3">
-          {myMatches.map((match) => (
+          {filteredMyMatches.map((match) => (
             <MatchCard key={match.matchId} match={match} />
           ))}
         </div>
@@ -93,11 +148,11 @@ export default function DashboardPage() {
 
         {recentLoading && <p className="text-muted-foreground">Loading…</p>}
         {recentError && <p className="text-destructive text-sm">Failed to load recent matches: {recentError.message}</p>}
-        {!recentLoading && !recentError && recentMatches.length === 0 && (
-          <p className="text-muted-foreground">No recent matches.</p>
+        {!recentLoading && !recentError && filteredRecentMatches.length === 0 && (
+          <p className="text-muted-foreground">{filter ? "No matches with this status." : "No recent matches."}</p>
         )}
         <div className="space-y-3">
-          {recentMatches.map((match) => (
+          {filteredRecentMatches.map((match) => (
             <MatchCard key={match.matchId} match={match} />
           ))}
         </div>
