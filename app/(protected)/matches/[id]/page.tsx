@@ -405,6 +405,20 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
     onError: (err) => toast.error(err instanceof Error ? err.message : "Failed to record wicket"),
   })
 
+  const endOverMutation = useMutation({
+    mutationFn: () => {
+      if (!currentOverId) throw new Error("No active over")
+      return endOver({ sessionToken: token, overId: currentOverId })
+    },
+    onSuccess: () => {
+      setCurrentOverId(null)
+      setPhase("over_complete")
+      swapBatsmenForNewOver()
+      resetBallState()
+    },
+    onError: (err) => toast.error(err instanceof Error ? err.message : "Failed to end over"),
+  })
+
   const endInningsMutation = useMutation({
     mutationFn: () => {
       if (!currentInningsId) throw new Error("No innings")
@@ -622,12 +636,21 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
                 {tossData.decision === "BAT_FIRST" ? "Batting first" : "Bowling first"}
               </p>
             )}
-            <Button
-              onClick={() => startInningsMutation.mutate()}
-              disabled={startInningsMutation.isPending}
-            >
-              {startInningsMutation.isPending ? "Starting…" : "Start Innings"}
-            </Button>
+            <div className="flex gap-2">
+              <Button
+                onClick={() => startInningsMutation.mutate()}
+                disabled={startInningsMutation.isPending}
+              >
+                {startInningsMutation.isPending ? "Starting…" : "Start Innings"}
+              </Button>
+              <Button
+                variant="destructive"
+                onClick={() => completeResultMutation.mutate()}
+                disabled={completeResultMutation.isPending}
+              >
+                {completeResultMutation.isPending ? "Ending…" : "End Match"}
+              </Button>
+            </div>
           </CardContent>
         </Card>
       )}
@@ -691,16 +714,27 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
               </Select>
             </div>
 
-            <Button
-              onClick={() => startOverMutation.mutate()}
-              disabled={
-                !bowlerId ||
-                (isFirstOver && (!openerA || !openerB)) ||
-                startOverMutation.isPending
-              }
-            >
-              {startOverMutation.isPending ? "Starting…" : "Start Over"}
-            </Button>
+            <div className="flex gap-2">
+              <Button
+                onClick={() => startOverMutation.mutate()}
+                disabled={
+                  !bowlerId ||
+                  (isFirstOver && (!openerA || !openerB)) ||
+                  startOverMutation.isPending
+                }
+              >
+                {startOverMutation.isPending ? "Starting…" : "Start Over"}
+              </Button>
+              {phase === "over_complete" && (
+                <Button
+                  variant="destructive"
+                  onClick={() => endInningsMutation.mutate()}
+                  disabled={endInningsMutation.isPending}
+                >
+                  {endInningsMutation.isPending ? "Ending…" : "End Innings"}
+                </Button>
+              )}
+            </div>
           </CardContent>
         </Card>
       )}
@@ -794,7 +828,17 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
           ) : (
             <Card>
               <CardHeader>
-                <CardTitle>Record Ball</CardTitle>
+                <div className="flex items-center justify-between">
+                  <CardTitle>Record Ball</CardTitle>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => endOverMutation.mutate()}
+                    disabled={endOverMutation.isPending}
+                  >
+                    {endOverMutation.isPending ? "Ending…" : "End Over"}
+                  </Button>
+                </div>
               </CardHeader>
               <CardContent className="space-y-5">
                 <div className="space-y-2">
@@ -935,6 +979,13 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
                 disabled={endInningsMutation.isPending}
               >
                 {endInningsMutation.isPending ? "Ending…" : "Start 2nd Innings"}
+              </Button>
+              <Button
+                variant="destructive"
+                onClick={() => completeResultMutation.mutate()}
+                disabled={completeResultMutation.isPending}
+              >
+                {completeResultMutation.isPending ? "Ending…" : "End Match"}
               </Button>
             </div>
           </CardContent>

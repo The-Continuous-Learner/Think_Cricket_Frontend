@@ -69,7 +69,16 @@ async function req<T>(
   })
   if (!res.ok) {
     const text = await res.text().catch(() => "")
-    throw new ApiError(res.status, text || `HTTP ${res.status}`)
+    let message = `HTTP ${res.status}`
+    if (text) {
+      try {
+        const parsed = JSON.parse(text)
+        message = parsed.error ?? parsed.message ?? text
+      } catch {
+        message = text
+      }
+    }
+    throw new ApiError(res.status, message)
   }
   const text = await res.text()
   if (!text) return undefined as T
