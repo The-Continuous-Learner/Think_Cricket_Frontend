@@ -9,6 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Separator } from "@/components/ui/separator"
 import { listMatches, getRecentMatches } from "@/lib/api"
 import { getSessionToken } from "@/lib/auth"
+import { StatusDot } from "@/components/ui/status-dot"
 import type { MatchSummary, MatchStatus } from "@/lib/types"
 
 const ALL_STATUSES: MatchStatus[] = ["IN_PROGRESS", "NOT_STARTED", "COMPLETED", "ABANDONED", "CANCELLED"]
@@ -34,13 +35,15 @@ function formatTime(epoch: number) {
   return new Date(epoch).toLocaleString()
 }
 
+
 function MatchCard({ match }: { match: MatchSummary }) {
   return (
     <Link href={`/matches/${match.matchId}`}>
       <Card className="hover:bg-accent/50 transition-colors cursor-pointer">
         <CardHeader className="pb-2">
           <div className="flex items-center justify-between gap-2">
-            <CardTitle className="text-base">
+            <CardTitle className="text-base flex items-center gap-2">
+              <StatusDot status={match.status} />
               {match.teamAName} vs {match.teamBName}
             </CardTitle>
             <Badge variant={STATUS_VARIANT[match.status]}>{match.status.replace("_", " ")}</Badge>

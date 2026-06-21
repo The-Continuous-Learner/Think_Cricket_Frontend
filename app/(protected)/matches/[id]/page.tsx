@@ -36,6 +36,7 @@ import {
 } from "@/lib/api"
 import { ApiError } from "@/lib/api"
 import { getSessionToken } from "@/lib/auth"
+import { StatusDot } from "@/components/ui/status-dot"
 import type {
   TossResult,
   TossDecision,
@@ -476,7 +477,8 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
           ← Dashboard
         </Link>
         <div className="flex items-center gap-3">
-          <h1 className="text-xl font-semibold">
+          <h1 className="text-xl font-semibold flex items-center gap-2">
+            <StatusDot status={match.status} size="md" />
             {teamAName} vs {teamBName}
           </h1>
           <Badge variant="outline">
