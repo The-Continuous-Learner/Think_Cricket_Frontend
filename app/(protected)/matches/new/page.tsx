@@ -82,9 +82,13 @@ export default function NewMatchPage() {
           >
             <div className="space-y-2">
               <Label>Team A</Label>
-              <Select value={teamAId} onValueChange={(v) => setTeamAId(v ?? "")} required>
+              <Select value={teamAId} onValueChange={(v) => setTeamAId(v ?? "")}>
                 <SelectTrigger>
-                  <SelectValue placeholder="Select team A" />
+                  <span className="flex flex-1 text-left text-sm">
+                    {teamAId
+                      ? (teams.find((t) => t.teamId === teamAId)?.name ?? teamAId)
+                      : <span className="text-muted-foreground">Select team A</span>}
+                  </span>
                 </SelectTrigger>
                 <SelectContent>
                   {teams.map((t) => (
@@ -98,9 +102,13 @@ export default function NewMatchPage() {
 
             <div className="space-y-2">
               <Label>Team B</Label>
-              <Select value={teamBId} onValueChange={(v) => setTeamBId(v ?? "")} required>
+              <Select value={teamBId} onValueChange={(v) => setTeamBId(v ?? "")}>
                 <SelectTrigger>
-                  <SelectValue placeholder="Select team B" />
+                  <span className="flex flex-1 text-left text-sm">
+                    {teamBId
+                      ? (teams.find((t) => t.teamId === teamBId)?.name ?? teamBId)
+                      : <span className="text-muted-foreground">Select team B</span>}
+                  </span>
                 </SelectTrigger>
                 <SelectContent>
                   {teams.map((t) => (
