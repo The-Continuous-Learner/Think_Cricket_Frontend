@@ -137,6 +137,11 @@ export interface EndMatchRequest {
   finalStatus: MatchStatus
 }
 
+export interface DeleteMatchRequest {
+  sessionToken: string
+  matchId: string
+}
+
 export interface MatchDetails {
   matchId: string
   teamAId: string

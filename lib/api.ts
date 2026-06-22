@@ -16,6 +16,7 @@ import type {
   HostMatchResponse,
   StartMatchRequest,
   EndMatchRequest,
+  DeleteMatchRequest,
   MatchDetails,
   MatchSummary,
   MatchLiveState,
@@ -151,6 +152,9 @@ export const startMatch = (data: StartMatchRequest) =>
 
 export const endMatch = (data: EndMatchRequest) =>
   req<void>("/matches/end", "POST", data)
+
+export const deleteMatch = (data: DeleteMatchRequest) =>
+  req<void>("/matches/delete", "DELETE", data)
 
 export const getMatchDetails = (sessionToken: string, matchId: string) =>
   req<MatchDetails>("/matches/getDetails", "GET", { sessionToken, matchId })

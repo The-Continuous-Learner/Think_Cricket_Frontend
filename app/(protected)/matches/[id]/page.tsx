@@ -33,6 +33,7 @@ import {
   recordWicket,
   completeMatchResult,
   endMatch,
+  deleteMatch,
 } from "@/lib/api"
 import { ApiError } from "@/lib/api"
 import { getSessionToken } from "@/lib/auth"
@@ -442,6 +443,12 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
         .finally(() => router.push(`/matches/${matchId}/result`))
     },
     onError: (err) => toast.error(err instanceof Error ? err.message : "Failed to complete result"),
+  })
+
+  const deleteMatchMutation = useMutation({
+    mutationFn: () => deleteMatch({ sessionToken: token, matchId }),
+    onSuccess: () => router.push("/dashboard"),
+    onError: (err) => toast.error(err instanceof Error ? err.message : "Failed to delete match"),
   })
 
   function resetBallState() {
@@ -1010,8 +1017,21 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
 
       {match.status === "IN_PROGRESS" && (
         <div className="flex justify-end">
-          <Button variant="outline" render={<Link href={`/matches/${matchId}/result`} />}>
+          <Button variant="outline" nativeButton={false} render={<Link href={`/matches/${matchId}/result`} />}>
             View Scorecard
+          </Button>
+        </div>
+      )}
+
+      {match.status !== "IN_PROGRESS" && (
+        <div className="flex justify-end">
+          <Button
+            variant="destructive"
+            size="sm"
+            onClick={() => deleteMatchMutation.mutate()}
+            disabled={deleteMatchMutation.isPending}
+          >
+            {deleteMatchMutation.isPending ? "Deleting…" : "Delete Match"}
           </Button>
         </div>
       )}
@@ -1022,7 +1042,7 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
             <CardTitle>Match Complete</CardTitle>
           </CardHeader>
           <CardContent>
-            <Button render={<Link href={`/matches/${matchId}/result`} />}>View Summary</Button>
+            <Button nativeButton={false} render={<Link href={`/matches/${matchId}/result`} />}>View Summary</Button>
           </CardContent>
         </Card>
       )}
