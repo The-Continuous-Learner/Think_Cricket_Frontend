@@ -20,7 +20,7 @@ import { hostMatch } from "@/lib/api"
 import { getSessionToken } from "@/lib/auth"
 import { getCachedTeams, type CachedTeam } from "@/lib/teams-cache"
 
-const FORMATS = ["T20", "ODI", "Test", "T10", "The Hundred"]
+const PRESET_FORMATS = ["T20", "ODI", "Test", "T10"]
 
 export default function NewMatchPage() {
   const router = useRouter()
@@ -28,7 +28,9 @@ export default function NewMatchPage() {
   const [teams, setTeams] = useState<CachedTeam[]>([])
   const [teamAId, setTeamAId] = useState("")
   const [teamBId, setTeamBId] = useState("")
-  const [format, setFormat] = useState("T20")
+  const [formatPreset, setFormatPreset] = useState("T20")
+  const [customFormat, setCustomFormat] = useState("")
+  const format = formatPreset === "Custom" ? customFormat : formatPreset
   const [totalOvers, setTotalOvers] = useState("20")
   const [plannedStart, setPlannedStart] = useState("")
 
@@ -118,18 +120,25 @@ export default function NewMatchPage() {
 
             <div className="space-y-2">
               <Label>Format</Label>
-              <Select value={format} onValueChange={(v) => v && setFormat(v)}>
+              <Select value={formatPreset} onValueChange={(v) => { if (v) setFormatPreset(v) }}>
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {FORMATS.map((f) => (
-                    <SelectItem key={f} value={f}>
-                      {f}
-                    </SelectItem>
+                  {PRESET_FORMATS.map((f) => (
+                    <SelectItem key={f} value={f}>{f}</SelectItem>
                   ))}
+                  <SelectItem value="Custom">Custom…</SelectItem>
                 </SelectContent>
               </Select>
+              {formatPreset === "Custom" && (
+                <Input
+                  placeholder="Enter format name"
+                  value={customFormat}
+                  onChange={(e) => setCustomFormat(e.target.value)}
+                  required
+                />
+              )}
             </div>
 
             <div className="space-y-2">
@@ -154,7 +163,7 @@ export default function NewMatchPage() {
             <Button
               type="submit"
               className="w-full"
-              disabled={mutation.isPending || !teamAId || !teamBId}
+              disabled={mutation.isPending || !teamAId || !teamBId || !format}
             >
               {mutation.isPending ? "Creating…" : "Create Match"}
             </Button>
