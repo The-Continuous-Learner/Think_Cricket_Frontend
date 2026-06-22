@@ -917,7 +917,7 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
               onClick={() => tossMutation.mutate()}
               disabled={!tossWinner || tossMutation.isPending}
             >
-              {tossMutation.isPending ? "Recording…" : "Conduct Toss"}
+              {tossMutation.isPending ? "Recording…" : flipSettled ? "Complete Toss" : "Conduct Toss"}
             </Button>
           </CardContent>
         </Card>
