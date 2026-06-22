@@ -15,7 +15,7 @@ export type WicketType =
   | "RETIRED_HURT"
   | "OBSTRUCTING_FIELD"
   | "TIMED_OUT"
-export type PlayerType = "Batsman" | "Baller" | "AllRounder" | "WicketKeeper"
+export type PlayerType = "Batsman" | "Bowler" | "AllRounder" | "WicketKeeper"
 export type Gender = "Male" | "Female"
 
 export interface RegisterRequest {
@@ -55,6 +55,30 @@ export interface SavePlayerRequest {
   age: number
   gender: Gender
   type: PlayerType
+}
+
+export interface UpdatePlayerRequest {
+  sessionToken: string
+  playerId: string
+  name: string
+  age: number
+  gender: Gender
+  type: PlayerType
+}
+
+export interface DeletePlayerRequest {
+  sessionToken: string
+  playerId: string
+}
+
+export interface PlayerTeamSummary {
+  teamId: string
+  teamName: string
+}
+
+export interface GetPlayerTeamsRequest {
+  sessionToken: string
+  playerId: string
 }
 
 export interface TeamPlayer {

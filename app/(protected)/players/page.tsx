@@ -22,21 +22,189 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { getAllPlayers, savePlayer } from "@/lib/api"
+import { getAllPlayers, savePlayer, updatePlayer, deletePlayer, getPlayerTeams } from "@/lib/api"
 import { getSessionToken } from "@/lib/auth"
-import type { Gender, PlayerType } from "@/lib/types"
+import type { Gender, Player, PlayerType } from "@/lib/types"
 
-const PLAYER_TYPES: PlayerType[] = ["Batsman", "Baller", "AllRounder", "WicketKeeper"]
+const PLAYER_TYPES: PlayerType[] = ["Batsman", "Bowler", "AllRounder", "WicketKeeper"]
 const GENDERS: Gender[] = ["Male", "Female"]
+const MAX_VISIBLE_TEAMS = 3
+
+function PlayerForm({
+  initial,
+  onSubmit,
+  isPending,
+  submitLabel,
+}: {
+  initial?: Player
+  onSubmit: (data: { name: string; age: number; gender: Gender; type: PlayerType }) => void
+  isPending: boolean
+  submitLabel: string
+}) {
+  const [name, setName] = useState(initial?.name ?? "")
+  const [age, setAge] = useState(String(initial?.age ?? ""))
+  const [gender, setGender] = useState<Gender>(initial?.gender ?? "Male")
+  const [type, setType] = useState<PlayerType>(initial?.type ?? "Batsman")
+
+  return (
+    <form
+      onSubmit={(e) => {
+        e.preventDefault()
+        onSubmit({ name, age: Number(age), gender, type })
+      }}
+      className="space-y-4"
+    >
+      <div className="space-y-2">
+        <Label>Name</Label>
+        <Input value={name} onChange={(e) => setName(e.target.value)} required />
+      </div>
+      <div className="space-y-2">
+        <Label>Age</Label>
+        <Input
+          type="number"
+          min={10}
+          max={60}
+          value={age}
+          onChange={(e) => setAge(e.target.value)}
+          required
+        />
+      </div>
+      <div className="space-y-2">
+        <Label>Gender</Label>
+        <Select value={gender} onValueChange={(v) => v && setGender(v as Gender)}>
+          <SelectTrigger>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {GENDERS.map((g) => (
+              <SelectItem key={g} value={g}>
+                {g}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+      <div className="space-y-2">
+        <Label>Type</Label>
+        <Select value={type} onValueChange={(v) => v && setType(v as PlayerType)}>
+          <SelectTrigger>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {PLAYER_TYPES.map((t) => (
+              <SelectItem key={t} value={t}>
+                {t}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+      <Button type="submit" className="w-full" disabled={isPending}>
+        {isPending ? "Saving…" : submitLabel}
+      </Button>
+    </form>
+  )
+}
+
+function PlayerCard({
+  player,
+  token,
+  onEdit,
+  onDelete,
+  isDeleting,
+}: {
+  player: Player
+  token: string
+  onEdit: () => void
+  onDelete: () => void
+  isDeleting: boolean
+}) {
+  const [showAllTeams, setShowAllTeams] = useState(false)
+
+  const { data: teams = [] } = useQuery({
+    queryKey: ["player-teams", player.id],
+    queryFn: () => getPlayerTeams(token, player.id),
+    staleTime: 15_000,
+    retry: 1,
+  })
+
+  const visibleTeams = showAllTeams ? teams : teams.slice(0, MAX_VISIBLE_TEAMS)
+  const hiddenCount = teams.length - MAX_VISIBLE_TEAMS
+
+  return (
+    <Card>
+      <CardContent className="pt-4 space-y-3">
+        <div className="space-y-1">
+          <div className="font-medium">{player.name}</div>
+          <div className="flex items-center gap-2 flex-wrap">
+            <Badge variant="secondary">{player.type}</Badge>
+            <span className="text-sm text-muted-foreground">
+              {player.gender} · {player.age}y
+            </span>
+          </div>
+        </div>
+
+        {teams.length > 0 && (
+          <div className="space-y-1.5">
+            <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">Part of</p>
+            <div className="flex flex-wrap gap-1.5">
+              {teams.slice(0, MAX_VISIBLE_TEAMS).map((t) => (
+                <span
+                  key={t.teamId}
+                  className="text-xs px-2 py-0.5 rounded-full border border-border text-muted-foreground"
+                >
+                  {t.teamName}
+                </span>
+              ))}
+              {hiddenCount > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setShowAllTeams(true)}
+                  className="text-xs px-2 py-0.5 rounded-full border border-dashed border-border text-primary hover:border-primary transition-colors"
+                >
+                  +{hiddenCount} more
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
+        <Dialog open={showAllTeams} onOpenChange={setShowAllTeams}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>{player.name} — Teams</DialogTitle>
+            </DialogHeader>
+            <div className="flex flex-wrap gap-2 pt-2">
+              {teams.map((t) => (
+                <span
+                  key={t.teamId}
+                  className="text-sm px-3 py-1 rounded-full border border-border text-muted-foreground"
+                >
+                  {t.teamName}
+                </span>
+              ))}
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        <div className="flex gap-2">
+          <Button size="sm" variant="outline" onClick={onEdit}>
+            Edit
+          </Button>
+          <Button size="sm" variant="destructive" onClick={onDelete} disabled={isDeleting}>
+            Delete
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
 
 export default function PlayersPage() {
   const token = getSessionToken()!
   const qc = useQueryClient()
-  const [open, setOpen] = useState(false)
-  const [name, setName] = useState("")
-  const [age, setAge] = useState("")
-  const [gender, setGender] = useState<Gender>("Male")
-  const [type, setType] = useState<PlayerType>("Batsman")
+  const [createOpen, setCreateOpen] = useState(false)
+  const [editPlayer, setEditPlayer] = useState<Player | null>(null)
   const [search, setSearch] = useState("")
 
   const { data: players = [], isLoading } = useQuery({
@@ -45,18 +213,34 @@ export default function PlayersPage() {
   })
 
   const createMutation = useMutation({
-    mutationFn: () =>
-      savePlayer({ sessionToken: token, name, age: Number(age), gender, type }),
+    mutationFn: (data: { name: string; age: number; gender: Gender; type: PlayerType }) =>
+      savePlayer({ sessionToken: token, ...data }),
     onSuccess: () => {
       toast.success("Player created")
       qc.invalidateQueries({ queryKey: ["players"] })
-      setOpen(false)
-      setName("")
-      setAge("")
-      setGender("Male")
-      setType("Batsman")
+      setCreateOpen(false)
     },
     onError: (err) => toast.error(err instanceof Error ? err.message : "Failed to create player"),
+  })
+
+  const updateMutation = useMutation({
+    mutationFn: (data: { name: string; age: number; gender: Gender; type: PlayerType }) =>
+      updatePlayer({ sessionToken: token, playerId: editPlayer!.id, ...data }),
+    onSuccess: () => {
+      toast.success("Player updated")
+      qc.invalidateQueries({ queryKey: ["players"] })
+      setEditPlayer(null)
+    },
+    onError: (err) => toast.error(err instanceof Error ? err.message : "Failed to update player"),
+  })
+
+  const deleteMutation = useMutation({
+    mutationFn: (playerId: string) => deletePlayer({ sessionToken: token, playerId }),
+    onSuccess: () => {
+      toast.success("Player deleted")
+      qc.invalidateQueries({ queryKey: ["players"] })
+    },
+    onError: (err) => toast.error(err instanceof Error ? err.message : "Failed to delete player"),
   })
 
   const filtered = players.filter((p) =>
@@ -67,68 +251,17 @@ export default function PlayersPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold">Players</h1>
-        <Dialog open={open} onOpenChange={setOpen}>
+        <Dialog open={createOpen} onOpenChange={setCreateOpen}>
           <DialogTrigger render={<Button />}>New Player</DialogTrigger>
           <DialogContent>
             <DialogHeader>
               <DialogTitle>New Player</DialogTitle>
             </DialogHeader>
-            <form
-              onSubmit={(e) => {
-                e.preventDefault()
-                createMutation.mutate()
-              }}
-              className="space-y-4"
-            >
-              <div className="space-y-2">
-                <Label>Name</Label>
-                <Input value={name} onChange={(e) => setName(e.target.value)} required />
-              </div>
-              <div className="space-y-2">
-                <Label>Age</Label>
-                <Input
-                  type="number"
-                  min={10}
-                  max={60}
-                  value={age}
-                  onChange={(e) => setAge(e.target.value)}
-                  required
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Gender</Label>
-                <Select value={gender} onValueChange={(v) => v && setGender(v as Gender)}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {GENDERS.map((g) => (
-                      <SelectItem key={g} value={g}>
-                        {g}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label>Type</Label>
-                <Select value={type} onValueChange={(v) => v && setType(v as PlayerType)}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {PLAYER_TYPES.map((t) => (
-                      <SelectItem key={t} value={t}>
-                        {t}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <Button type="submit" className="w-full" disabled={createMutation.isPending}>
-                {createMutation.isPending ? "Saving…" : "Create Player"}
-              </Button>
-            </form>
+            <PlayerForm
+              onSubmit={(data) => createMutation.mutate(data)}
+              isPending={createMutation.isPending}
+              submitLabel="Create Player"
+            />
           </DialogContent>
         </Dialog>
       </div>
@@ -146,19 +279,32 @@ export default function PlayersPage() {
         <p className="text-muted-foreground">No players found.</p>
       )}
 
+      <Dialog open={!!editPlayer} onOpenChange={(o) => { if (!o) setEditPlayer(null) }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit Player</DialogTitle>
+          </DialogHeader>
+          {editPlayer && (
+            <PlayerForm
+              initial={editPlayer}
+              onSubmit={(data) => updateMutation.mutate(data)}
+              isPending={updateMutation.isPending}
+              submitLabel="Save Changes"
+            />
+          )}
+        </DialogContent>
+      </Dialog>
+
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {filtered.map((player) => (
-          <Card key={player.id}>
-            <CardContent className="pt-4 space-y-2">
-              <div className="font-medium">{player.name}</div>
-              <div className="flex items-center gap-2 flex-wrap">
-                <Badge variant="secondary">{player.type}</Badge>
-                <span className="text-sm text-muted-foreground">
-                  {player.gender} · {player.age}y
-                </span>
-              </div>
-            </CardContent>
-          </Card>
+          <PlayerCard
+            key={player.id}
+            player={player}
+            token={token}
+            onEdit={() => setEditPlayer(player)}
+            onDelete={() => deleteMutation.mutate(player.id)}
+            isDeleting={deleteMutation.isPending}
+          />
         ))}
       </div>
     </div>

@@ -5,6 +5,9 @@ import type {
   LoginResponse,
   Player,
   SavePlayerRequest,
+  UpdatePlayerRequest,
+  DeletePlayerRequest,
+  PlayerTeamSummary,
   Team,
   TeamPlayersResponse,
   CreateTeamRequest,
@@ -46,7 +49,7 @@ export class ApiError extends Error {
 
 async function req<T>(
   path: string,
-  method: "GET" | "POST",
+  method: "GET" | "POST" | "PUT" | "DELETE",
   body?: unknown,
   extraHeaders?: Record<string, string>,
 ): Promise<T> {
@@ -104,8 +107,17 @@ export const validateSession = (token: string) =>
 export const savePlayer = (data: SavePlayerRequest) =>
   req<Player>("/players/save", "POST", data)
 
+export const updatePlayer = (data: UpdatePlayerRequest) =>
+  req<Player>("/players/update", "PUT", data)
+
+export const deletePlayer = (data: DeletePlayerRequest) =>
+  req<void>("/players/delete", "DELETE", data)
+
 export const getAllPlayers = (sessionToken: string) =>
   req<Player[]>("/players/get-all", "GET", { sessionToken })
+
+export const getPlayerTeams = (sessionToken: string, playerId: string) =>
+  req<PlayerTeamSummary[]>("/players/teams", "GET", { sessionToken, playerId })
 
 export const getPlayersByName = (sessionToken: string, name: string) =>
   req<Player[]>("/players/get-by-name", "GET", { sessionToken, name })
