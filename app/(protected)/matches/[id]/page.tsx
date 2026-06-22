@@ -292,17 +292,26 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
     return allPlayers.find((p) => p.playerId === id)?.name ?? id.slice(0, 8)
   }
 
+  const playingXI = useCallback((teamId: string): Set<string> => {
+    const squad = teamId === match?.teamAId ? teamASquad : teamBSquad
+    return new Set(squad.filter((e) => e.role === "PLAYING").map((e) => e.playerId))
+  }, [match, teamASquad, teamBSquad])
+
   const determineBattingTeamPlayers = useCallback((): TeamPlayer[] => {
     if (!match || !liveState?.activeInnings) return []
     const battingTeamId = liveState.activeInnings.battingTeamId
-    return battingTeamId === match.teamAId ? teamAPlayers : teamBPlayers
-  }, [match, liveState, teamAPlayers, teamBPlayers])
+    const players = battingTeamId === match.teamAId ? teamAPlayers : teamBPlayers
+    const xi = playingXI(battingTeamId)
+    return xi.size > 0 ? players.filter((p) => xi.has(p.playerId)) : players
+  }, [match, liveState, teamAPlayers, teamBPlayers, playingXI])
 
   const determineBowlingTeamPlayers = useCallback((): TeamPlayer[] => {
     if (!match || !liveState?.activeInnings) return []
     const bowlingTeamId = liveState.activeInnings.bowlingTeamId
-    return bowlingTeamId === match.teamAId ? teamAPlayers : teamBPlayers
-  }, [match, liveState, teamAPlayers, teamBPlayers])
+    const players = bowlingTeamId === match.teamAId ? teamAPlayers : teamBPlayers
+    const xi = playingXI(bowlingTeamId)
+    return xi.size > 0 ? players.filter((p) => xi.has(p.playerId)) : players
+  }, [match, liveState, teamAPlayers, teamBPlayers, playingXI])
 
   const computePhase = useCallback(
     async (forceRefetch = false) => {
@@ -968,7 +977,11 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
                   <Label>Opening Batsman (Striker)</Label>
                   <Select value={openerA} onValueChange={(v) => setOpenerA(v ?? "")}>
                     <SelectTrigger>
-                      <SelectValue placeholder="Select opener" />
+                      <span className="flex flex-1 text-left text-sm">
+                        {openerA
+                          ? (battingPlayers.find((p) => p.playerId === openerA)?.name ?? openerA)
+                          : <span className="text-muted-foreground">Select opener</span>}
+                      </span>
                     </SelectTrigger>
                     <SelectContent>
                       {battingPlayers.map((p) => (
@@ -983,7 +996,11 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
                   <Label>Opening Batsman (Non-striker)</Label>
                   <Select value={openerB} onValueChange={(v) => setOpenerB(v ?? "")}>
                     <SelectTrigger>
-                      <SelectValue placeholder="Select non-striker" />
+                      <span className="flex flex-1 text-left text-sm">
+                        {openerB
+                          ? (battingPlayers.find((p) => p.playerId === openerB)?.name ?? openerB)
+                          : <span className="text-muted-foreground">Select non-striker</span>}
+                      </span>
                     </SelectTrigger>
                     <SelectContent>
                       {battingPlayers.map((p) => (
@@ -1001,7 +1018,11 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
               <Label>Bowler</Label>
               <Select value={bowlerId} onValueChange={(v) => setBowlerId(v ?? "")}>
                 <SelectTrigger>
-                  <SelectValue placeholder="Select bowler" />
+                  <span className="flex flex-1 text-left text-sm">
+                    {bowlerId
+                      ? (bowlingPlayers.find((p) => p.playerId === bowlerId)?.name ?? bowlerId)
+                      : <span className="text-muted-foreground">Select bowler</span>}
+                  </span>
                 </SelectTrigger>
                 <SelectContent>
                   {bowlingPlayers.map((p) => (
@@ -1081,7 +1102,11 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
                   <Label>Fielder (optional)</Label>
                   <Select value={fielderId} onValueChange={(v) => setFielderId(v ?? "")}>
                     <SelectTrigger>
-                      <SelectValue placeholder="None" />
+                      <span className="flex flex-1 text-left text-sm">
+                        {fielderId
+                          ? (bowlingPlayers.find((p) => p.playerId === fielderId)?.name ?? fielderId)
+                          : <span className="text-muted-foreground">None</span>}
+                      </span>
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="">None</SelectItem>
@@ -1098,7 +1123,11 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
                   <Label>New Batsman</Label>
                   <Select value={newBatsmanId} onValueChange={(v) => setNewBatsmanId(v ?? "")}>
                     <SelectTrigger>
-                      <SelectValue placeholder="Select incoming batsman" />
+                      <span className="flex flex-1 text-left text-sm">
+                        {newBatsmanId
+                          ? (battingPlayers.find((p) => p.playerId === newBatsmanId)?.name ?? newBatsmanId)
+                          : <span className="text-muted-foreground">Select incoming batsman</span>}
+                      </span>
                     </SelectTrigger>
                     <SelectContent>
                       {battingPlayers
