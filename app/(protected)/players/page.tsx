@@ -22,9 +22,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { getAllPlayers, savePlayer, updatePlayer, deletePlayer, getPlayerTeams } from "@/lib/api"
+import { getAllPlayers, savePlayer, updatePlayer, deletePlayer, getPlayerTeams, getMyTeams, addPlayerToTeam } from "@/lib/api"
 import { getSessionToken } from "@/lib/auth"
-import type { Gender, Player, PlayerType } from "@/lib/types"
+import type { Gender, Player, PlayerType, Team } from "@/lib/types"
 
 const PLAYER_TYPES: PlayerType[] = ["Batsman", "Bowler", "AllRounder", "WicketKeeper"]
 const GENDERS: Gender[] = ["Male", "Female"]
@@ -35,22 +35,25 @@ function PlayerForm({
   onSubmit,
   isPending,
   submitLabel,
+  teams,
 }: {
   initial?: Player
-  onSubmit: (data: { name: string; age: number; gender: Gender; type: PlayerType }) => void
+  onSubmit: (data: { name: string; age: number; gender: Gender; type: PlayerType; teamId: string | null }) => void
   isPending: boolean
   submitLabel: string
+  teams?: Team[]
 }) {
   const [name, setName] = useState(initial?.name ?? "")
   const [age, setAge] = useState(String(initial?.age ?? ""))
   const [gender, setGender] = useState<Gender>(initial?.gender ?? "Male")
   const [type, setType] = useState<PlayerType>(initial?.type ?? "Batsman")
+  const [teamId, setTeamId] = useState("")
 
   return (
     <form
       onSubmit={(e) => {
         e.preventDefault()
-        onSubmit({ name, age: Number(age), gender, type })
+        onSubmit({ name, age: Number(age), gender, type, teamId: teamId || null })
       }}
       className="space-y-4"
     >
@@ -99,6 +102,24 @@ function PlayerForm({
           </SelectContent>
         </Select>
       </div>
+      {teams && (
+        <div className="space-y-2">
+          <Label>Add to Team <span className="text-muted-foreground font-normal">(optional)</span></Label>
+          <Select value={teamId} onValueChange={(v) => setTeamId(v ?? "")}>
+            <SelectTrigger>
+              <SelectValue placeholder="No team" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="">No team</SelectItem>
+              {teams.map((t) => (
+                <SelectItem key={t.id} value={t.id}>
+                  {t.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      )}
       <Button type="submit" className="w-full" disabled={isPending}>
         {isPending ? "Saving…" : submitLabel}
       </Button>
@@ -212,10 +233,21 @@ export default function PlayersPage() {
     queryFn: () => getAllPlayers(token),
   })
 
+  const { data: myTeams = [] } = useQuery({
+    queryKey: ["my-teams"],
+    queryFn: () => getMyTeams(token),
+    staleTime: 15_000,
+    retry: 1,
+  })
+
   const createMutation = useMutation({
-    mutationFn: (data: { name: string; age: number; gender: Gender; type: PlayerType }) =>
-      savePlayer({ sessionToken: token, ...data }),
-    onSuccess: () => {
+    mutationFn: ({ teamId, ...data }: { name: string; age: number; gender: Gender; type: PlayerType; teamId: string | null }) =>
+      savePlayer({ sessionToken: token, ...data }).then((player) => ({ player, teamId })),
+    onSuccess: async ({ player, teamId }) => {
+      if (teamId) {
+        await addPlayerToTeam(token, teamId, player.id).catch(() => {})
+        qc.invalidateQueries({ queryKey: ["player-teams", player.id] })
+      }
       toast.success("Player created")
       qc.invalidateQueries({ queryKey: ["players"] })
       setCreateOpen(false)
@@ -224,7 +256,7 @@ export default function PlayersPage() {
   })
 
   const updateMutation = useMutation({
-    mutationFn: (data: { name: string; age: number; gender: Gender; type: PlayerType }) =>
+    mutationFn: ({ teamId: _, ...data }: { name: string; age: number; gender: Gender; type: PlayerType; teamId: string | null }) =>
       updatePlayer({ sessionToken: token, playerId: editPlayer!.id, ...data }),
     onSuccess: () => {
       toast.success("Player updated")
@@ -261,6 +293,7 @@ export default function PlayersPage() {
               onSubmit={(data) => createMutation.mutate(data)}
               isPending={createMutation.isPending}
               submitLabel="Create Player"
+              teams={myTeams}
             />
           </DialogContent>
         </Dialog>
