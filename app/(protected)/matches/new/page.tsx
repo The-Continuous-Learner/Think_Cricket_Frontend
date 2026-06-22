@@ -32,7 +32,8 @@ export default function NewMatchPage() {
   const [customFormat, setCustomFormat] = useState("")
   const format = formatPreset === "Custom" ? customFormat : formatPreset
   const [totalOvers, setTotalOvers] = useState("20")
-  const [plannedStart, setPlannedStart] = useState("")
+  const [plannedDate, setPlannedDate] = useState("")
+  const [plannedTime, setPlannedTime] = useState("")
 
   useEffect(() => {
     setTeams(getCachedTeams())
@@ -46,7 +47,9 @@ export default function NewMatchPage() {
         teamBId,
         format,
         totalOvers: Number(totalOvers),
-        plannedStartTime: plannedStart ? new Date(plannedStart).getTime() : Date.now(),
+        plannedStartTime: plannedDate
+          ? new Date(`${plannedDate}T${plannedTime || "00:00"}`).getTime()
+          : Date.now(),
         parentMatchId: null,
       }),
     onSuccess: (res) => {
@@ -152,12 +155,22 @@ export default function NewMatchPage() {
             </div>
 
             <div className="space-y-2">
-              <Label>Planned Start Time</Label>
-              <Input
-                type="datetime-local"
-                value={plannedStart}
-                onChange={(e) => setPlannedStart(e.target.value)}
-              />
+              <Label>Planned Start Time <span className="text-muted-foreground font-normal">(optional)</span></Label>
+              <div className="flex gap-2">
+                <Input
+                  type="date"
+                  value={plannedDate}
+                  onChange={(e) => setPlannedDate(e.target.value)}
+                  className="flex-1"
+                />
+                <Input
+                  type="time"
+                  value={plannedTime}
+                  onChange={(e) => setPlannedTime(e.target.value)}
+                  className="w-32"
+                  disabled={!plannedDate}
+                />
+              </div>
             </div>
 
             <Button
