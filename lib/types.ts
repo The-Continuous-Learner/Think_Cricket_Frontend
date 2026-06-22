@@ -396,3 +396,58 @@ export interface MatchResultResponse {
   resultText: string
   decidedBySuperOver: boolean
 }
+
+export type SquadRole = "PLAYING" | "SUBSTITUTE"
+export type SubstitutionType = "IMPACT" | "CONCUSSION" | "RETIRED_HURT"
+
+export interface SquadPlayerEntry {
+  playerId: string
+  role: SquadRole
+  captain: boolean
+  viceCaptain: boolean
+}
+
+export interface DeclareSquadRequest {
+  sessionToken: string
+  matchId: string
+  teamId: string
+  players: SquadPlayerEntry[]
+}
+
+export interface SquadPlayerInfo {
+  playerId: string
+  playerName: string
+  role: SquadRole
+  captain: boolean
+  viceCaptain: boolean
+}
+
+export interface SquadResponse {
+  matchId: string
+  teamId: string
+  players: SquadPlayerInfo[]
+}
+
+export interface RecordSubstitutionRequest {
+  sessionToken: string
+  matchId: string
+  teamId: string
+  playerOutId: string
+  playerInId: string
+  inningsNumber: number
+  overNumber: number
+  substitutionType: SubstitutionType
+}
+
+export interface SubstitutionResponse {
+  id: string
+  matchId: string
+  teamId: string
+  playerOutId: string
+  playerOutName: string
+  playerInId: string
+  playerInName: string
+  inningsNumber: number
+  overNumber: number
+  substitutionType: SubstitutionType
+}

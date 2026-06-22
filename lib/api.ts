@@ -36,6 +36,10 @@ import type {
   RecordWicketRequest,
   RecordWicketResponse,
   MatchResultResponse,
+  DeclareSquadRequest,
+  SquadResponse,
+  RecordSubstitutionRequest,
+  SubstitutionResponse,
 } from "./types"
 
 const BASE = "/api"
@@ -204,3 +208,15 @@ export const completeMatchResult = (sessionToken: string, matchId: string) =>
 
 export const getMatchResult = (sessionToken: string, matchId: string) =>
   req<MatchResultResponse>("/match-result", "GET", { sessionToken, matchId })
+
+export const declareSquad = (data: DeclareSquadRequest) =>
+  req<SquadResponse>("/squad/declare", "POST", data)
+
+export const getSquad = (sessionToken: string, matchId: string, teamId: string) =>
+  req<SquadResponse>("/squad/get", "GET", { sessionToken, matchId, teamId })
+
+export const getCurrentXI = (sessionToken: string, matchId: string, teamId: string) =>
+  req<SquadResponse>("/squad/current-xi", "GET", { sessionToken, matchId, teamId })
+
+export const recordSubstitution = (data: RecordSubstitutionRequest) =>
+  req<SubstitutionResponse>("/squad/substitute", "POST", data)

@@ -42,8 +42,8 @@ export default function TeamDetailPage({ params }: { params: Promise<{ id: strin
   })
 
   const { data: allPlayers = [] } = useQuery({
-    queryKey: ["players"],
-    queryFn: () => getAllPlayers(token),
+    queryKey: ["players-all"],
+    queryFn: () => getAllPlayers(token, 0, 1000).then((r) => r.content),
   })
 
   const addMutation = useMutation({

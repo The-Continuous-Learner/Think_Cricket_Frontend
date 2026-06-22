@@ -1,6 +1,6 @@
 "use client"
 
-import { use, useState, useEffect, useCallback } from "react"
+import { use, useState, useEffect, useCallback, useRef } from "react"
 import { useQuery, useMutation } from "@tanstack/react-query"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
@@ -34,6 +34,7 @@ import {
   completeMatchResult,
   endMatch,
   deleteMatch,
+  declareSquad,
 } from "@/lib/api"
 import { ApiError } from "@/lib/api"
 import { getSessionToken } from "@/lib/auth"
@@ -52,6 +53,7 @@ import type {
 type Phase =
   | "loading"
   | "not_started"
+  | "declare_squad"
   | "toss"
   | "start_innings"
   | "start_over"
@@ -75,6 +77,123 @@ const WICKET_TYPES: WicketType[] = [
   "TIMED_OUT",
 ]
 
+type SquadRole = "PLAYING" | "SUBSTITUTE" | "NONE"
+type SquadEntry = { playerId: string; role: SquadRole; captain: boolean; viceCaptain: boolean }
+
+function SquadBuilder({
+  teamName,
+  players,
+  entries,
+  onChange,
+  onDeclare,
+  isPending,
+  declared,
+}: {
+  teamName: string
+  players: TeamPlayer[]
+  entries: SquadEntry[]
+  onChange: (entries: SquadEntry[]) => void
+  onDeclare: () => void
+  isPending: boolean
+  declared: boolean
+}) {
+  if (players.length === 0) return <p className="text-sm text-muted-foreground">Loading players…</p>
+
+  const captainEntry = entries.find((e) => e.captain)
+  const captainId = captainEntry?.playerId
+  const valid = !!captainId && captainEntry!.role !== "NONE" && entries.some((e) => e.role === "PLAYING")
+
+  function setRole(playerId: string, role: SquadRole) {
+    onChange(
+      entries.map((e) => {
+        if (e.playerId !== playerId) return e
+        return role === "NONE" ? { ...e, role, captain: false, viceCaptain: false } : { ...e, role }
+      }),
+    )
+  }
+
+  function setCaptain(playerId: string) {
+    onChange(
+      entries.map((e) => ({
+        ...e,
+        captain: e.playerId === playerId,
+        viceCaptain: e.viceCaptain && e.playerId !== playerId,
+      })),
+    )
+  }
+
+  function toggleVC(playerId: string) {
+    onChange(
+      entries.map((e) =>
+        e.playerId === playerId ? { ...e, viceCaptain: !e.viceCaptain } : { ...e, viceCaptain: false },
+      ),
+    )
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center gap-2">
+        <p className="font-medium text-sm">{teamName}</p>
+        {declared && <Badge variant="secondary">Declared</Badge>}
+      </div>
+      <div>
+        {entries.map((entry) => {
+          const player = players.find((p) => p.playerId === entry.playerId)!
+          return (
+            <div key={entry.playerId} className="flex items-center gap-2 py-1.5 border-b border-border/40 last:border-0">
+              <span className="flex-1 text-sm">{player.name}</span>
+              <div className="flex rounded border border-border overflow-hidden text-xs">
+                <button
+                  type="button"
+                  onClick={() => setRole(entry.playerId, "PLAYING")}
+                  className={`px-2.5 py-1 transition-colors ${entry.role === "PLAYING" ? "bg-primary text-primary-foreground" : "bg-transparent text-muted-foreground hover:bg-muted"}`}
+                >
+                  XI
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setRole(entry.playerId, "NONE")}
+                  className={`px-2.5 py-1 border-l border-border transition-colors ${entry.role === "NONE" ? "bg-muted text-foreground font-medium" : "bg-transparent text-muted-foreground hover:bg-muted"}`}
+                >
+                  —
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setRole(entry.playerId, "SUBSTITUTE")}
+                  className={`px-2.5 py-1 border-l border-border transition-colors ${entry.role === "SUBSTITUTE" ? "bg-secondary text-secondary-foreground" : "bg-transparent text-muted-foreground hover:bg-muted"}`}
+                >
+                  SUB
+                </button>
+              </div>
+              <button
+                type="button"
+                onClick={() => setCaptain(entry.playerId)}
+                className={`px-2.5 py-1 rounded text-xs transition-colors ${entry.captain ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted"}`}
+              >
+                C
+              </button>
+              <button
+                type="button"
+                onClick={() => toggleVC(entry.playerId)}
+                disabled={entry.captain}
+                className={`px-2.5 py-1 rounded text-xs transition-colors disabled:opacity-40 ${entry.viceCaptain ? "bg-secondary text-secondary-foreground" : "text-muted-foreground hover:bg-muted"}`}
+              >
+                VC
+              </button>
+            </div>
+          )
+        })}
+      </div>
+      {!captainId && (
+        <p className="text-xs text-muted-foreground">Tap C to assign captain</p>
+      )}
+      <Button size="sm" disabled={!valid || isPending} onClick={onDeclare}>
+        {isPending ? "Declaring…" : declared ? "Re-declare Squad" : "Declare Squad"}
+      </Button>
+    </div>
+  )
+}
+
 export default function MatchPage({ params }: { params: Promise<{ id: string }> }) {
   const { id: matchId } = use(params)
   const token = getSessionToken()!
@@ -95,6 +214,13 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
   const [flippedResult, setFlippedResult] = useState<TossResult | null>(null)
   const [tossWinner, setTossWinner] = useState<string>("")
   const [tossDecision, setTossDecision] = useState<TossDecision>("BAT_FIRST")
+
+  const [teamASquad, setTeamASquad] = useState<SquadEntry[]>([])
+  const [teamBSquad, setTeamBSquad] = useState<SquadEntry[]>([])
+  const [teamADeclared, setTeamADeclared] = useState(false)
+  const [teamBDeclared, setTeamBDeclared] = useState(false)
+  const [declaringTeamId, setDeclaringTeamId] = useState<string | null>(null)
+  const inSquadPhaseRef = useRef(false)
 
   const [bowlerId, setBowlerId] = useState<string>("")
   const [openerA, setOpenerA] = useState<string>("")
@@ -133,6 +259,18 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
   })
 
   const allPlayers = [...teamAPlayers, ...teamBPlayers]
+
+  useEffect(() => {
+    if (teamAPlayers.length > 0 && teamASquad.length === 0) {
+      setTeamASquad(teamAPlayers.map((p) => ({ playerId: p.playerId, role: "PLAYING" as const, captain: false, viceCaptain: false })))
+    }
+  }, [teamAPlayers]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (teamBPlayers.length > 0 && teamBSquad.length === 0) {
+      setTeamBSquad(teamBPlayers.map((p) => ({ playerId: p.playerId, role: "PLAYING" as const, captain: false, viceCaptain: false })))
+    }
+  }, [teamBPlayers]) // eslint-disable-line react-hooks/exhaustive-deps
 
   function teamName(id: string) {
     if (id === match?.teamAId) return match.teamAName
@@ -222,15 +360,38 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
   )
 
   useEffect(() => {
-    if (match && liveState) {
+    if (match && liveState && !inSquadPhaseRef.current) {
       computePhase()
     }
   }, [match, liveState]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const startMatchMutation = useMutation({
     mutationFn: () => startMatch({ sessionToken: token, matchId }),
-    onSuccess: () => computePhase(true),
+    onSuccess: () => {
+      inSquadPhaseRef.current = true
+      setPhase("declare_squad")
+    },
     onError: (err) => toast.error(err instanceof Error ? err.message : "Failed to start match"),
+  })
+
+  const declareSquadMutation = useMutation({
+    mutationFn: ({ teamId, entries }: { teamId: string; entries: SquadEntry[] }) => {
+      setDeclaringTeamId(teamId)
+      const players = entries
+        .filter((e) => e.role !== "NONE")
+        .map((e) => ({ playerId: e.playerId, role: e.role as "PLAYING" | "SUBSTITUTE", captain: e.captain, viceCaptain: e.viceCaptain }))
+      return declareSquad({ sessionToken: token, matchId, teamId, players })
+    },
+    onSuccess: (_, { teamId }) => {
+      if (match && teamId === match.teamAId) setTeamADeclared(true)
+      else setTeamBDeclared(true)
+      setDeclaringTeamId(null)
+      toast.success("Squad declared")
+    },
+    onError: (err) => {
+      setDeclaringTeamId(null)
+      toast.error(err instanceof Error ? err.message : "Failed to declare squad")
+    },
   })
 
   const tossMutation = useMutation({
@@ -579,6 +740,44 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
           <CardContent>
             <Button onClick={() => startMatchMutation.mutate()} disabled={startMatchMutation.isPending}>
               {startMatchMutation.isPending ? "Starting…" : "Start Match"}
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
+      {phase === "declare_squad" && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Declare Squads</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            <SquadBuilder
+              teamName={teamAName}
+              players={teamAPlayers}
+              entries={teamASquad}
+              onChange={setTeamASquad}
+              onDeclare={() => declareSquadMutation.mutate({ teamId: match.teamAId, entries: teamASquad })}
+              isPending={declareSquadMutation.isPending && declaringTeamId === match.teamAId}
+              declared={teamADeclared}
+            />
+            <Separator />
+            <SquadBuilder
+              teamName={teamBName}
+              players={teamBPlayers}
+              entries={teamBSquad}
+              onChange={setTeamBSquad}
+              onDeclare={() => declareSquadMutation.mutate({ teamId: match.teamBId, entries: teamBSquad })}
+              isPending={declareSquadMutation.isPending && declaringTeamId === match.teamBId}
+              declared={teamBDeclared}
+            />
+            <Separator />
+            <Button
+              onClick={() => {
+                inSquadPhaseRef.current = false
+                computePhase(true)
+              }}
+            >
+              Continue to Toss →
             </Button>
           </CardContent>
         </Card>
