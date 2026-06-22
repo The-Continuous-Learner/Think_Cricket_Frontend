@@ -230,6 +230,7 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
   const [declaringTeamId, setDeclaringTeamId] = useState<string | null>(null)
   const inSquadPhaseRef = useRef(false)
   const isComputingPhaseRef = useRef(false)
+  const pendingWicketRef = useRef(false)
 
   const [bowlerId, setBowlerId] = useState<string>("")
   const [openerA, setOpenerA] = useState<string>("")
@@ -408,7 +409,7 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
   )
 
   useEffect(() => {
-    if (match && liveState && !inSquadPhaseRef.current && !isComputingPhaseRef.current) {
+    if (match && liveState && !inSquadPhaseRef.current && !isComputingPhaseRef.current && !pendingWicketRef.current) {
       computePhase()
     }
   }, [match, liveState]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -488,22 +489,18 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
   })
 
   const startInningsMutation = useMutation({
-    mutationFn: () => {
+    mutationFn: async () => {
       if (!tossData || !match) throw new Error("No toss data")
-      const inningsCount = liveState?.activeInnings?.inningsNumber ?? 0
+      const inningsList = await getInningsList(token, matchId)
+      const completedCount = inningsList.length
 
       let battingTeamId: string
-      let bowlingTeamId: string
-
-      if (inningsCount === 0) {
-        battingTeamId =
-          tossData.decision === "BAT_FIRST" ? tossData.winnerTeamId : tossData.loserTeamId
-        bowlingTeamId = battingTeamId === match.teamAId ? match.teamBId : match.teamAId
+      if (completedCount === 0) {
+        battingTeamId = tossData.decision === "BAT_FIRST" ? tossData.winnerTeamId : tossData.loserTeamId
       } else {
-        battingTeamId =
-          tossData.decision === "BAT_FIRST" ? tossData.loserTeamId : tossData.winnerTeamId
-        bowlingTeamId = battingTeamId === match.teamAId ? match.teamBId : match.teamAId
+        battingTeamId = tossData.decision === "BAT_FIRST" ? tossData.loserTeamId : tossData.winnerTeamId
       }
+      const bowlingTeamId = battingTeamId === match.teamAId ? match.teamBId : match.teamAId
 
       return startInnings({ sessionToken: token, matchId, battingTeamId, bowlingTeamId })
     },
@@ -587,6 +584,7 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
       refetchLive()
       refetchScorecard()
       if (res.wicket) {
+        pendingWicketRef.current = true
         setPhase("recording")
         setPlayerOutId(batsmanId ?? "")
       } else {
@@ -623,6 +621,7 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
       })
     },
     onSuccess: () => {
+      pendingWicketRef.current = false
       if (playerOutId === batsmanId) {
         setBatsmanId(newBatsmanId || null)
       } else {
