@@ -22,6 +22,7 @@ import {
   getMatchLiveState,
   getToss,
   getTeamPlayers,
+  getSquad,
   startMatch,
   conductToss,
   flipCoin,
@@ -113,6 +114,8 @@ function SquadBuilder({
   }
 
   function setCaptain(playerId: string) {
+    const entry = entries.find((e) => e.playerId === playerId)
+    if (!entry || entry.role !== "PLAYING") return
     onChange(
       entries.map((e) => ({
         ...e,
@@ -123,6 +126,8 @@ function SquadBuilder({
   }
 
   function toggleVC(playerId: string) {
+    const entry = entries.find((e) => e.playerId === playerId)
+    if (!entry || entry.role !== "PLAYING") return
     onChange(
       entries.map((e) =>
         e.playerId === playerId ? { ...e, viceCaptain: !e.viceCaptain } : { ...e, viceCaptain: false },
@@ -168,15 +173,16 @@ function SquadBuilder({
               <button
                 type="button"
                 onClick={() => setCaptain(entry.playerId)}
-                className={`px-2.5 py-1 rounded text-xs transition-colors ${entry.captain ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted"}`}
+                disabled={entry.role !== "PLAYING"}
+                className={`px-2.5 py-1 rounded text-xs transition-colors disabled:opacity-30 disabled:cursor-not-allowed ${entry.captain ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted"}`}
               >
                 C
               </button>
               <button
                 type="button"
                 onClick={() => toggleVC(entry.playerId)}
-                disabled={entry.captain}
-                className={`px-2.5 py-1 rounded text-xs transition-colors disabled:opacity-40 ${entry.viceCaptain ? "bg-secondary text-secondary-foreground" : "text-muted-foreground hover:bg-muted"}`}
+                disabled={entry.captain || entry.role !== "PLAYING"}
+                className={`px-2.5 py-1 rounded text-xs transition-colors disabled:opacity-30 disabled:cursor-not-allowed ${entry.viceCaptain ? "bg-secondary text-secondary-foreground" : "text-muted-foreground hover:bg-muted"}`}
               >
                 VC
               </button>
@@ -315,6 +321,38 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
 
         if (m.status === "NOT_STARTED") { setPhase("not_started"); return }
         if (m.status === "COMPLETED" || m.status === "ABANDONED" || m.status === "CANCELLED") { setPhase("completed"); return }
+
+        const [squadAResult, squadBResult] = await Promise.allSettled([
+          getSquad(token, matchId, m.teamAId),
+          getSquad(token, matchId, m.teamBId),
+        ])
+        const squadADeclared = squadAResult.status === "fulfilled" && squadAResult.value.players.length > 0
+        const squadBDeclared = squadBResult.status === "fulfilled" && squadBResult.value.players.length > 0
+
+        if (squadADeclared) {
+          setTeamADeclared(true)
+          setTeamASquad(squadAResult.value.players.map((p) => ({
+            playerId: p.playerId,
+            role: p.role as SquadRole,
+            captain: p.captain,
+            viceCaptain: p.viceCaptain,
+          })))
+        }
+        if (squadBDeclared) {
+          setTeamBDeclared(true)
+          setTeamBSquad(squadBResult.value.players.map((p) => ({
+            playerId: p.playerId,
+            role: p.role as SquadRole,
+            captain: p.captain,
+            viceCaptain: p.viceCaptain,
+          })))
+        }
+
+        if (!squadADeclared || !squadBDeclared) {
+          inSquadPhaseRef.current = true
+          setPhase("declare_squad")
+          return
+        }
 
         let toss: TossResponse | null = null
         try {
