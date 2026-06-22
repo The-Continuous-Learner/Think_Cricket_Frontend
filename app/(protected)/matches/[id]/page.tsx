@@ -34,6 +34,7 @@ import {
   endOver,
   recordBall,
   recordWicket,
+  recordSubstitution,
   completeMatchResult,
   endMatch,
   deleteMatch,
@@ -51,6 +52,7 @@ import type {
   BoundaryType,
   RecordBallResponse,
   TeamPlayer,
+  SubstitutionType,
 } from "@/lib/types"
 
 type Phase =
@@ -244,6 +246,12 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
   const [playerOutId, setPlayerOutId] = useState<string>("")
   const [fielderId, setFielderId] = useState<string>("")
   const [newBatsmanId, setNewBatsmanId] = useState<string>("")
+
+  const [showSubForm, setShowSubForm] = useState(false)
+  const [subTeamId, setSubTeamId] = useState<string>("")
+  const [subPlayerOutId, setSubPlayerOutId] = useState<string>("")
+  const [subPlayerInId, setSubPlayerInId] = useState<string>("")
+  const [subType, setSubType] = useState<SubstitutionType>("IMPACT")
 
   const { data: match, refetch: refetchMatch, isError: matchError } = useQuery({
     queryKey: ["match", matchId],
@@ -650,6 +658,39 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
       }
     },
     onError: (err) => toast.error(err instanceof Error ? err.message : "Failed to record wicket"),
+  })
+
+  const recordSubstitutionMutation = useMutation({
+    mutationFn: () => {
+      if (!subTeamId || !subPlayerOutId || !subPlayerInId) throw new Error("Fill all substitution fields")
+      return recordSubstitution({
+        sessionToken: token,
+        matchId,
+        teamId: subTeamId,
+        playerOutId: subPlayerOutId,
+        playerInId: subPlayerInId,
+        inningsNumber: activeInnings?.inningsNumber ?? 1,
+        overNumber: activeInnings?.oversCompleted ?? 0,
+        substitutionType: subType,
+      })
+    },
+    onSuccess: (res) => {
+      const setSquad = subTeamId === match?.teamAId ? setTeamASquad : setTeamBSquad
+      setSquad((prev) =>
+        prev.map((e) => {
+          if (e.playerId === subPlayerOutId) return { ...e, role: "SUBSTITUTE" as SquadRole }
+          if (e.playerId === subPlayerInId) return { ...e, role: "PLAYING" as SquadRole }
+          return e
+        }),
+      )
+      setShowSubForm(false)
+      setSubTeamId("")
+      setSubPlayerOutId("")
+      setSubPlayerInId("")
+      setSubType("IMPACT")
+      toast.success(`${res.playerInName} in for ${res.playerOutName}`)
+    },
+    onError: (err) => toast.error(err instanceof Error ? err.message : "Failed to record substitution"),
   })
 
   const endOverMutation = useMutation({
@@ -1375,6 +1416,107 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
               {completeResultMutation.isPending ? "Computing…" : "Complete Match & View Result"}
             </Button>
           </CardContent>
+        </Card>
+      )}
+
+      {activeInnings && (
+        <Card>
+          <CardHeader className="pb-2">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-base">Record Substitution</CardTitle>
+              <Button variant="ghost" size="sm" onClick={() => {
+                setShowSubForm((v) => !v)
+                setSubTeamId("")
+                setSubPlayerOutId("")
+                setSubPlayerInId("")
+                setSubType("IMPACT")
+              }}>
+                {showSubForm ? "Cancel" : "Substitute Player"}
+              </Button>
+            </div>
+          </CardHeader>
+          {showSubForm && (
+            <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <Label>Team</Label>
+                <Select value={subTeamId} onValueChange={(v) => { setSubTeamId(v ?? ""); setSubPlayerOutId(""); setSubPlayerInId("") }}>
+                  <SelectTrigger>
+                    <span className="flex flex-1 text-left text-sm">
+                      {subTeamId === match.teamAId ? match.teamAName : subTeamId === match.teamBId ? match.teamBName : <span className="text-muted-foreground">Select team</span>}
+                    </span>
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={match.teamAId}>{match.teamAName}</SelectItem>
+                    <SelectItem value={match.teamBId}>{match.teamBName}</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {subTeamId && (() => {
+                const squad = subTeamId === match.teamAId ? teamASquad : teamBSquad
+                const players = subTeamId === match.teamAId ? teamAPlayers : teamBPlayers
+                const name = (id: string) => players.find((p) => p.playerId === id)?.name ?? id.slice(0, 8)
+                const playing = squad.filter((e) => e.role === "PLAYING")
+                const bench = squad.filter((e) => e.role === "SUBSTITUTE")
+                return (
+                  <>
+                    <div className="space-y-2">
+                      <Label>Player Out (Playing XI)</Label>
+                      <Select value={subPlayerOutId} onValueChange={(v) => setSubPlayerOutId(v ?? "")}>
+                        <SelectTrigger>
+                          <span className="flex flex-1 text-left text-sm">
+                            {subPlayerOutId ? name(subPlayerOutId) : <span className="text-muted-foreground">Select player leaving</span>}
+                          </span>
+                        </SelectTrigger>
+                        <SelectContent>
+                          {playing.map((e) => (
+                            <SelectItem key={e.playerId} value={e.playerId}>{name(e.playerId)}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label>Player In (Substitute)</Label>
+                      <Select value={subPlayerInId} onValueChange={(v) => setSubPlayerInId(v ?? "")}>
+                        <SelectTrigger>
+                          <span className="flex flex-1 text-left text-sm">
+                            {subPlayerInId ? name(subPlayerInId) : <span className="text-muted-foreground">Select player coming in</span>}
+                          </span>
+                        </SelectTrigger>
+                        <SelectContent>
+                          {bench.map((e) => (
+                            <SelectItem key={e.playerId} value={e.playerId} disabled={e.playerId === subPlayerOutId}>{name(e.playerId)}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </>
+                )
+              })()}
+
+              <div className="space-y-2">
+                <Label>Substitution Type</Label>
+                <Select value={subType} onValueChange={(v) => setSubType((v ?? "IMPACT") as SubstitutionType)}>
+                  <SelectTrigger>
+                    <span className="flex flex-1 text-left text-sm">{subType.replace("_", " ")}</span>
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="IMPACT">Impact</SelectItem>
+                    <SelectItem value="CONCUSSION">Concussion</SelectItem>
+                    <SelectItem value="RETIRED_HURT">Retired Hurt</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <Button
+                onClick={() => recordSubstitutionMutation.mutate()}
+                disabled={!subTeamId || !subPlayerOutId || !subPlayerInId || recordSubstitutionMutation.isPending}
+              >
+                {recordSubstitutionMutation.isPending ? "Recording…" : "Confirm Substitution"}
+              </Button>
+            </CardContent>
+          )}
         </Card>
       )}
 
