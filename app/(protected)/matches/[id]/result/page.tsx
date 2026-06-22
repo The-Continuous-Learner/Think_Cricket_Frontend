@@ -1,9 +1,10 @@
 "use client"
 
-import { use } from "react"
+import { use, useState } from "react"
 import { useQuery } from "@tanstack/react-query"
 import Link from "next/link"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Separator } from "@/components/ui/separator"
 import {
@@ -14,12 +15,13 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { getMatchScore, getMatchResult, getTeamPlayers, getMatchDetails } from "@/lib/api"
+import { getMatchScore, getMatchResult, getTeamPlayers, getMatchDetails, getSquad } from "@/lib/api"
 import { getSessionToken } from "@/lib/auth"
 
 export default function ResultPage({ params }: { params: Promise<{ id: string }> }) {
   const { id: matchId } = use(params)
   const token = getSessionToken()!
+  const [showSquad, setShowSquad] = useState<"A" | "B" | null>(null)
 
   const { data: match } = useQuery({
     queryKey: ["match", matchId],
@@ -57,6 +59,18 @@ export default function ResultPage({ params }: { params: Promise<{ id: string }>
 
   const allPlayers = [...(teamAPlayersData ?? []), ...(teamBPlayersData ?? [])]
 
+  const { data: squadA } = useQuery({
+    queryKey: ["squad", matchId, match?.teamAId],
+    queryFn: () => getSquad(token, matchId, match!.teamAId),
+    enabled: !!match?.teamAId,
+  })
+
+  const { data: squadB } = useQuery({
+    queryKey: ["squad", matchId, match?.teamBId],
+    queryFn: () => getSquad(token, matchId, match!.teamBId),
+    enabled: !!match?.teamBId,
+  })
+
   function playerName(id: string | null) {
     if (!id) return "—"
     return allPlayers.find((p) => p.playerId === id)?.name ?? id.slice(0, 8)
@@ -93,6 +107,65 @@ export default function ResultPage({ params }: { params: Promise<{ id: string }>
           </CardContent>
         </Card>
       )}
+
+      <div className="flex gap-2">
+        {[
+          { key: "A" as const, name: teamName(score.teamAId), squad: squadA },
+          { key: "B" as const, name: teamName(score.teamBId), squad: squadB },
+        ].map(({ key, name, squad }) => (
+          <Button
+            key={key}
+            variant="outline"
+            size="sm"
+            onClick={() => setShowSquad(showSquad === key ? null : key)}
+          >
+            {name} Squad {showSquad === key ? "▲" : "▼"}
+          </Button>
+        ))}
+      </div>
+
+      {showSquad && (() => {
+        const squadData = showSquad === "A" ? squadA : squadB
+        const teamLabel = teamName(showSquad === "A" ? score.teamAId : score.teamBId)
+        if (!squadData) return <p className="text-muted-foreground text-sm">Loading squad…</p>
+        return (
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground uppercase tracking-wide">
+                {teamLabel} — Full Squad
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="p-0">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>#</TableHead>
+                    <TableHead>Player</TableHead>
+                    <TableHead>Role</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {squadData.players.map((p, i) => (
+                    <TableRow key={p.playerId}>
+                      <TableCell className="text-muted-foreground">{i + 1}</TableCell>
+                      <TableCell className="font-medium">
+                        {p.playerName}
+                        {p.captain && <span className="ml-1 text-xs text-primary">(C)</span>}
+                        {p.viceCaptain && <span className="ml-1 text-xs text-muted-foreground">(VC)</span>}
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant={p.role === "PLAYING" ? "default" : "secondary"}>
+                          {p.role === "PLAYING" ? "Playing XI" : "Substitute"}
+                        </Badge>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+        )
+      })()}
 
       {score.innings.map((innings) => (
         <div key={innings.inningsNumber} className="space-y-4">

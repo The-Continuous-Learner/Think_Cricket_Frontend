@@ -833,6 +833,10 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
             <Separator />
             <Button
               onClick={() => {
+                if (!teamADeclared || !teamBDeclared) {
+                  toast.error("Please declare both team squads before proceeding to toss")
+                  return
+                }
                 inSquadPhaseRef.current = false
                 computePhase(true)
               }}
