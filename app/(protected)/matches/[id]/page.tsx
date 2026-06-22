@@ -1224,7 +1224,7 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
                       {deliveryMode === "wide" ? "Total wide runs" : "Extra runs"}
                     </Label>
                     <div className="flex gap-2 flex-wrap">
-                      {(deliveryMode === "wide" ? [1, 2, 4, 5] : [1, 2, 3, 4]).map((r) => (
+                      {[1, 2, 3, 4, 5, 6].map((r) => (
                         <Button
                           key={r}
                           size="sm"
