@@ -397,6 +397,72 @@ export interface MatchResultResponse {
   decidedBySuperOver: boolean
 }
 
+export interface InningsSummary {
+  inningsId: string
+  inningsNumber: number
+  battingTeamId: string
+  battingTeamName: string
+  bowlingTeamId: string
+  bowlingTeamName: string
+  status: InningsStatus
+  totalRuns: number
+  wickets: number
+  oversCompleted: number
+  extras: number
+  target: number | null
+}
+
+export interface BattingScoreEntry {
+  id: string
+  matchId: string
+  inningsId: string
+  inningsNumber: number
+  playerId: string
+  battingPosition: number
+  runs: number
+  balls: number
+  fours: number
+  sixes: number
+  out: boolean
+  dismissalType: WicketType | null
+  dismissalBallId: string | null
+  strikeRate: number
+}
+
+export interface BowlingScoreEntry {
+  id: string
+  matchId: string
+  inningsId: string
+  inningsNumber: number
+  bowlerId: string
+  ballsBowled: number
+  overs: number
+  maidens: number
+  runsConceded: number
+  wickets: number
+  economy: number
+}
+
+export interface InningsScoreCard {
+  inningsId: string
+  inningsNumber: number
+  battingTeamId: string
+  bowlingTeamId: string
+  batting: BattingScoreEntry[]
+  bowling: BowlingScoreEntry[]
+  fallOfWickets: FallOfWicket[]
+  totalRuns: number
+  totalWickets: number
+  totalOvers: number
+}
+
+export interface ScoreCardResponse {
+  matchId: string
+  matchStatus: string
+  resultText: string
+  innings: InningsScoreCard[]
+}
+
 export type SquadRole = "PLAYING" | "SUBSTITUTE"
 export type SubstitutionType = "IMPACT" | "CONCUSSION" | "RETIRED_HURT"
 

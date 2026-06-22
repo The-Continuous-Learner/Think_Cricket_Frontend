@@ -23,6 +23,8 @@ import {
   getToss,
   getTeamPlayers,
   getSquad,
+  getScorecard,
+  getInningsList,
   startMatch,
   conductToss,
   flipCoin,
@@ -269,6 +271,12 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
 
   const allPlayers = [...teamAPlayers, ...teamBPlayers]
 
+  const { data: scorecard, refetch: refetchScorecard } = useQuery({
+    queryKey: ["scorecard", matchId],
+    queryFn: () => getScorecard(token, matchId),
+    enabled: phase !== "loading" && phase !== "not_started" && phase !== "declare_squad" && phase !== "toss",
+  })
+
   useEffect(() => {
     if (teamAPlayers.length > 0 && teamASquad.length === 0) {
       setTeamASquad(teamAPlayers.map((p) => ({ playerId: p.playerId, role: "PLAYING" as const, captain: false, viceCaptain: false })))
@@ -375,7 +383,14 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
 
         const { activeInnings, activeOver, lastBatsmanId, lastNonStrikerId } = live
 
-        if (!activeInnings) { setPhase("start_innings"); return }
+        if (!activeInnings) {
+          if (m.format !== "Test") {
+            const inningsList = await getInningsList(token, matchId)
+            if (inningsList.length >= 2) { setPhase("complete_result"); return }
+          }
+          setPhase("start_innings")
+          return
+        }
 
         setCurrentInningsId(activeInnings.inningsId)
         if (lastBatsmanId && batsmanId === null) setBatsmanId(lastBatsmanId)
@@ -569,6 +584,8 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
     },
     onSuccess: async (res) => {
       setLastBallRes(res)
+      refetchLive()
+      refetchScorecard()
       if (res.wicket) {
         setPhase("recording")
         setPlayerOutId(batsmanId ?? "")
@@ -932,36 +949,46 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
         </Card>
       )}
 
-      {phase === "start_innings" && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Start Innings</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {tossData && (
-              <p className="text-sm text-muted-foreground">
-                {teamName(tossData.winnerTeamId)} won toss ·{" "}
-                {tossData.decision === "BAT_FIRST" ? "Batting first" : "Bowling first"}
-              </p>
-            )}
-            <div className="flex gap-2">
-              <Button
-                onClick={() => startInningsMutation.mutate()}
-                disabled={startInningsMutation.isPending}
-              >
-                {startInningsMutation.isPending ? "Starting…" : "Start Innings"}
-              </Button>
-              <Button
-                variant="destructive"
-                onClick={() => completeResultMutation.mutate()}
-                disabled={completeResultMutation.isPending}
-              >
-                {completeResultMutation.isPending ? "Ending…" : "End Match"}
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      )}
+      {phase === "start_innings" && (() => {
+        const completedInnings = scorecard?.innings.length ?? 0
+        const isTest = match.format === "Test"
+        const allInningsPlayed = !isTest && completedInnings >= 2
+        return (
+          <Card>
+            <CardHeader>
+              <CardTitle>{allInningsPlayed ? "All Innings Complete" : "Start Innings"}</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {tossData && (
+                <p className="text-sm text-muted-foreground">
+                  {teamName(tossData.winnerTeamId)} won toss ·{" "}
+                  {tossData.decision === "BAT_FIRST" ? "Batting first" : "Bowling first"}
+                </p>
+              )}
+              {allInningsPlayed && (
+                <p className="text-sm text-muted-foreground">Both innings have been completed. Complete the match to record the result.</p>
+              )}
+              <div className="flex gap-2">
+                {!allInningsPlayed && (
+                  <Button
+                    onClick={() => startInningsMutation.mutate()}
+                    disabled={startInningsMutation.isPending}
+                  >
+                    {startInningsMutation.isPending ? "Starting…" : "Start Innings"}
+                  </Button>
+                )}
+                <Button
+                  variant={allInningsPlayed ? "default" : "destructive"}
+                  onClick={() => completeResultMutation.mutate()}
+                  disabled={completeResultMutation.isPending}
+                >
+                  {completeResultMutation.isPending ? "Ending…" : allInningsPlayed ? "Complete Match" : "End Match"}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        )
+      })()}
 
       {(phase === "start_over" || phase === "over_complete") && (
         <Card>
@@ -1366,6 +1393,76 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
             <Button nativeButton={false} render={<Link href={`/matches/${matchId}/result`} />}>View Summary</Button>
           </CardContent>
         </Card>
+      )}
+
+      {scorecard && scorecard.innings.filter((inn) => inn.batting.length > 0).length > 0 && (
+        <div className="space-y-4">
+          <h2 className="text-base font-semibold">Innings Scorecard</h2>
+          {scorecard.innings.filter((inn) => inn.batting.length > 0).map((inn) => (
+            <Card key={inn.inningsId}>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium">
+                  Innings {inn.inningsNumber} — {teamName(inn.battingTeamId)} batting · {inn.totalRuns}/{inn.totalWickets} ({inn.totalOvers} ov)
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div>
+                  <p className="text-xs font-medium text-muted-foreground mb-1 uppercase tracking-wide">Batting</p>
+                  <div className="w-full text-sm">
+                    <div className="grid grid-cols-[1fr_auto_auto_auto_auto_auto] gap-x-4 text-xs text-muted-foreground pb-1 border-b border-border/40">
+                      <span>Batter</span>
+                      <span className="text-right">R</span>
+                      <span className="text-right">B</span>
+                      <span className="text-right">4s</span>
+                      <span className="text-right">6s</span>
+                      <span className="text-right">SR</span>
+                    </div>
+                    {inn.batting.sort((a, b) => a.battingPosition - b.battingPosition).map((b) => (
+                      <div key={b.id} className="grid grid-cols-[1fr_auto_auto_auto_auto_auto] gap-x-4 py-1 border-b border-border/20 last:border-0">
+                        <div>
+                          <span className="font-medium">{playerName(b.playerId)}</span>
+                          {b.out && b.dismissalType && (
+                            <span className="ml-1.5 text-xs text-muted-foreground">{b.dismissalType}</span>
+                          )}
+                          {!b.out && <span className="ml-1.5 text-xs text-muted-foreground">not out</span>}
+                        </div>
+                        <span className="text-right font-medium">{b.runs}</span>
+                        <span className="text-right text-muted-foreground">{b.balls}</span>
+                        <span className="text-right text-muted-foreground">{b.fours}</span>
+                        <span className="text-right text-muted-foreground">{b.sixes}</span>
+                        <span className="text-right text-muted-foreground">{b.strikeRate.toFixed(1)}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <p className="text-xs font-medium text-muted-foreground mb-1 uppercase tracking-wide">Bowling</p>
+                  <div className="w-full text-sm">
+                    <div className="grid grid-cols-[1fr_auto_auto_auto_auto_auto] gap-x-4 text-xs text-muted-foreground pb-1 border-b border-border/40">
+                      <span>Bowler</span>
+                      <span className="text-right">O</span>
+                      <span className="text-right">M</span>
+                      <span className="text-right">R</span>
+                      <span className="text-right">W</span>
+                      <span className="text-right">Eco</span>
+                    </div>
+                    {inn.bowling.map((b) => (
+                      <div key={b.id} className="grid grid-cols-[1fr_auto_auto_auto_auto_auto] gap-x-4 py-1 border-b border-border/20 last:border-0">
+                        <span className="font-medium">{playerName(b.bowlerId)}</span>
+                        <span className="text-right">{b.overs}</span>
+                        <span className="text-right text-muted-foreground">{b.maidens}</span>
+                        <span className="text-right text-muted-foreground">{b.runsConceded}</span>
+                        <span className="text-right font-medium">{b.wickets}</span>
+                        <span className="text-right text-muted-foreground">{b.economy.toFixed(1)}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
       )}
     </div>
   )

@@ -36,6 +36,8 @@ import type {
   RecordWicketRequest,
   RecordWicketResponse,
   MatchResultResponse,
+  InningsSummary,
+  ScoreCardResponse,
   DeclareSquadRequest,
   SquadResponse,
   RecordSubstitutionRequest,
@@ -208,6 +210,12 @@ export const completeMatchResult = (sessionToken: string, matchId: string) =>
 
 export const getMatchResult = (sessionToken: string, matchId: string) =>
   req<MatchResultResponse>("/match-result", "GET", { sessionToken, matchId })
+
+export const getInningsList = (sessionToken: string, matchId: string) =>
+  req<InningsSummary[]>("/innings/list", "GET", { sessionToken, matchId })
+
+export const getScorecard = (sessionToken: string, matchId: string) =>
+  req<ScoreCardResponse>("/innings/scorecard", "GET", { sessionToken, matchId })
 
 export const declareSquad = (data: DeclareSquadRequest) =>
   req<SquadResponse>("/squad/declare", "POST", data)
