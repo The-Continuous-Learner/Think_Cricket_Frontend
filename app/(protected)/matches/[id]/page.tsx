@@ -221,6 +221,7 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
   const [teamBDeclared, setTeamBDeclared] = useState(false)
   const [declaringTeamId, setDeclaringTeamId] = useState<string | null>(null)
   const inSquadPhaseRef = useRef(false)
+  const isComputingPhaseRef = useRef(false)
 
   const [bowlerId, setBowlerId] = useState<string>("")
   const [openerA, setOpenerA] = useState<string>("")
@@ -235,15 +236,17 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
   const [fielderId, setFielderId] = useState<string>("")
   const [newBatsmanId, setNewBatsmanId] = useState<string>("")
 
-  const { data: match, refetch: refetchMatch } = useQuery({
+  const { data: match, refetch: refetchMatch, isError: matchError } = useQuery({
     queryKey: ["match", matchId],
     queryFn: () => getMatchDetails(token, matchId),
+    retry: 2,
   })
 
-  const { data: liveState, refetch: refetchLive } = useQuery({
+  const { data: liveState, refetch: refetchLive, isError: liveError } = useQuery({
     queryKey: ["live", matchId],
     queryFn: () => getMatchLiveState(token, matchId),
     refetchInterval: phase === "recording" ? 0 : false,
+    retry: 2,
   })
 
   const { data: teamAPlayers = [] } = useQuery({
@@ -296,71 +299,54 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
   }, [match, liveState, teamAPlayers, teamBPlayers])
 
   const computePhase = useCallback(
-    async (refetch = false) => {
-      if (refetch) {
-        await refetchMatch()
-        await refetchLive()
-      }
-
-      const m = refetch ? (await refetchMatch()).data : match
-      const live = refetch ? (await refetchLive()).data : liveState
-
-      if (!m || !live) return
-
-      if (m.status === "NOT_STARTED") {
-        setPhase("not_started")
-        return
-      }
-
-      if (m.status === "COMPLETED" || m.status === "ABANDONED" || m.status === "CANCELLED") {
-        setPhase("completed")
-        return
-      }
-
-      let toss: TossResponse | null = null
+    async (forceRefetch = false) => {
+      if (forceRefetch) isComputingPhaseRef.current = true
       try {
-        toss = await getToss(token, matchId)
-        setTossData(toss)
-      } catch (e) {
-        if (e instanceof ApiError && e.status === 404) {
-          toss = null
+        let m = match
+        let live = liveState
+
+        if (forceRefetch) {
+          const [matchResult, liveResult] = await Promise.all([refetchMatch(), refetchLive()])
+          m = matchResult.data
+          live = liveResult.data
         }
+
+        if (!m || !live) return
+
+        if (m.status === "NOT_STARTED") { setPhase("not_started"); return }
+        if (m.status === "COMPLETED" || m.status === "ABANDONED" || m.status === "CANCELLED") { setPhase("completed"); return }
+
+        let toss: TossResponse | null = null
+        try {
+          toss = await getToss(token, matchId)
+          setTossData(toss)
+        } catch (e) {
+          if (e instanceof ApiError && e.status === 404) toss = null
+        }
+
+        if (!toss) { setPhase("toss"); return }
+
+        const { activeInnings, activeOver, lastBatsmanId, lastNonStrikerId } = live
+
+        if (!activeInnings) { setPhase("start_innings"); return }
+
+        setCurrentInningsId(activeInnings.inningsId)
+        if (lastBatsmanId && batsmanId === null) setBatsmanId(lastBatsmanId)
+        if (lastNonStrikerId && nonStrikerId === null) setNonStrikerId(lastNonStrikerId)
+
+        if (!activeOver) { setPhase("start_over"); return }
+
+        setCurrentOverId(activeOver.overId)
+        setPhase("recording")
+      } finally {
+        if (forceRefetch) isComputingPhaseRef.current = false
       }
-
-      if (!toss) {
-        setPhase("toss")
-        return
-      }
-
-      const { activeInnings, activeOver, lastBatsmanId, lastNonStrikerId } = live
-
-      if (!activeInnings) {
-        setPhase("start_innings")
-        return
-      }
-
-      setCurrentInningsId(activeInnings.inningsId)
-
-      if (lastBatsmanId && batsmanId === null) {
-        setBatsmanId(lastBatsmanId)
-      }
-      if (lastNonStrikerId && nonStrikerId === null) {
-        setNonStrikerId(lastNonStrikerId)
-      }
-
-      if (!activeOver) {
-        setPhase("start_over")
-        return
-      }
-
-      setCurrentOverId(activeOver.overId)
-      setPhase("recording")
     },
     [match, liveState, token, matchId, batsmanId, nonStrikerId, refetchMatch, refetchLive],
   )
 
   useEffect(() => {
-    if (match && liveState && !inSquadPhaseRef.current) {
+    if (match && liveState && !inSquadPhaseRef.current && !isComputingPhaseRef.current) {
       computePhase()
     }
   }, [match, liveState]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -668,6 +654,17 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
   const battingPlayers = determineBattingTeamPlayers()
   const bowlingPlayers = determineBowlingTeamPlayers()
   const isFirstOver = !liveState?.lastBatsmanId
+
+  if (matchError || liveError) {
+    return (
+      <div className="space-y-3">
+        <p className="text-destructive text-sm">Failed to load match data.</p>
+        <Button size="sm" variant="outline" onClick={() => { refetchMatch(); refetchLive() }}>
+          Retry
+        </Button>
+      </div>
+    )
+  }
 
   if (!match || phase === "loading") {
     return <p className="text-muted-foreground">Loading match…</p>
