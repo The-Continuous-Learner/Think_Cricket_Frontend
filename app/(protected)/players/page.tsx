@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
@@ -221,17 +221,62 @@ function PlayerCard({
   )
 }
 
+const PAGE_SIZE = 15
+
+function getPageNumbers(current: number, total: number): (number | "…")[] {
+  if (total <= 7) return Array.from({ length: total }, (_, i) => i)
+  const pages: (number | "…")[] = [0]
+  if (current > 2) pages.push("…")
+  for (let i = Math.max(1, current - 1); i <= Math.min(total - 2, current + 1); i++) pages.push(i)
+  if (current < total - 3) pages.push("…")
+  pages.push(total - 1)
+  return pages
+}
+
+function Paginator({ page, totalPages, onChange }: { page: number; totalPages: number; onChange: (p: number) => void }) {
+  if (totalPages <= 1) return null
+  return (
+    <div className="flex items-center justify-center gap-1 pt-2">
+      <Button variant="outline" size="sm" onClick={() => onChange(page - 1)} disabled={page === 0}>←</Button>
+      {getPageNumbers(page, totalPages).map((p, i) =>
+        p === "…" ? (
+          <span key={`ellipsis-${i}`} className="px-2 text-muted-foreground select-none">…</span>
+        ) : (
+          <Button
+            key={p}
+            variant={p === page ? "default" : "outline"}
+            size="sm"
+            className="w-9"
+            onClick={() => onChange(p as number)}
+          >
+            {(p as number) + 1}
+          </Button>
+        )
+      )}
+      <Button variant="outline" size="sm" onClick={() => onChange(page + 1)} disabled={page === totalPages - 1}>→</Button>
+    </div>
+  )
+}
+
 export default function PlayersPage() {
   const token = getSessionToken()!
   const qc = useQueryClient()
   const [createOpen, setCreateOpen] = useState(false)
   const [editPlayer, setEditPlayer] = useState<Player | null>(null)
   const [search, setSearch] = useState("")
+  const [page, setPage] = useState(0)
 
-  const { data: players = [], isLoading } = useQuery({
-    queryKey: ["players"],
-    queryFn: () => getAllPlayers(token),
+  useEffect(() => { setPage(0) }, [search])
+
+  const { data: pagedData, isLoading } = useQuery({
+    queryKey: ["players", page],
+    queryFn: () => getAllPlayers(token, page, PAGE_SIZE),
+    staleTime: 15_000,
+    retry: 1,
   })
+
+  const players: Player[] = pagedData?.content ?? []
+  const totalPages = pagedData?.totalPages ?? 0
 
   const { data: myTeams = [] } = useQuery({
     queryKey: ["my-teams"],
@@ -275,7 +320,7 @@ export default function PlayersPage() {
     onError: (err) => toast.error(err instanceof Error ? err.message : "Failed to delete player"),
   })
 
-  const filtered = players.filter((p) =>
+  const filtered = players.filter((p: Player) =>
     p.name.toLowerCase().includes(search.toLowerCase()),
   )
 
@@ -329,7 +374,7 @@ export default function PlayersPage() {
       </Dialog>
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        {filtered.map((player) => (
+        {filtered.map((player: Player) => (
           <PlayerCard
             key={player.id}
             player={player}
@@ -340,6 +385,8 @@ export default function PlayersPage() {
           />
         ))}
       </div>
+
+      <Paginator page={page} totalPages={totalPages} onChange={setPage} />
     </div>
   )
 }

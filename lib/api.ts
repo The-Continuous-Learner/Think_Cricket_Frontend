@@ -8,6 +8,7 @@ import type {
   UpdatePlayerRequest,
   DeletePlayerRequest,
   PlayerTeamSummary,
+  PagedPlayersResponse,
   Team,
   TeamPlayersResponse,
   CreateTeamRequest,
@@ -114,8 +115,8 @@ export const updatePlayer = (data: UpdatePlayerRequest) =>
 export const deletePlayer = (data: DeletePlayerRequest) =>
   req<void>("/players/delete", "DELETE", data)
 
-export const getAllPlayers = (sessionToken: string) =>
-  req<Player[]>("/players/get-all", "GET", { sessionToken })
+export const getAllPlayers = (sessionToken: string, page: number, size: number) =>
+  req<PagedPlayersResponse>("/players/get-all", "GET", { sessionToken, page, size })
 
 export const getPlayerTeams = (sessionToken: string, playerId: string) =>
   req<PlayerTeamSummary[]>("/players/teams", "GET", { sessionToken, playerId })

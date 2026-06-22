@@ -81,6 +81,22 @@ export interface GetPlayerTeamsRequest {
   playerId: string
 }
 
+export interface GetAllPlayersRequest {
+  sessionToken: string
+  page: number
+  size: number
+}
+
+export interface PagedPlayersResponse {
+  content: Player[]
+  totalElements: number
+  totalPages: number
+  number: number
+  size: number
+  first: boolean
+  last: boolean
+}
+
 export interface TeamPlayer {
   playerId: string
   name: string
