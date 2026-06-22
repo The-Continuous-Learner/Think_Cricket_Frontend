@@ -622,19 +622,31 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
     },
     onSuccess: () => {
       pendingWicketRef.current = false
-      if (playerOutId === batsmanId) {
-        setBatsmanId(newBatsmanId || null)
-      } else {
-        setNonStrikerId(newBatsmanId || null)
-      }
-      setNewBatsmanId("")
-      setFielderId("")
-      resetBallState()
       if (lastBallRes?.inningsCompleted) {
+        if (playerOutId === batsmanId) setBatsmanId(newBatsmanId || null)
+        else setNonStrikerId(newBatsmanId || null)
+        setNewBatsmanId("")
+        setFielderId("")
+        resetBallState()
         setPhase("innings_complete")
       } else if (lastBallRes?.overCompleted) {
+        if (playerOutId === batsmanId) {
+          setBatsmanId(nonStrikerId)
+          setNonStrikerId(newBatsmanId || null)
+        } else {
+          setBatsmanId(newBatsmanId || null)
+          setNonStrikerId(batsmanId)
+        }
+        setNewBatsmanId("")
+        setFielderId("")
+        resetBallState()
         setPhase("over_complete")
-        swapBatsmenForNewOver()
+      } else {
+        if (playerOutId === batsmanId) setBatsmanId(newBatsmanId || null)
+        else setNonStrikerId(newBatsmanId || null)
+        setNewBatsmanId("")
+        setFielderId("")
+        resetBallState()
       }
     },
     onError: (err) => toast.error(err instanceof Error ? err.message : "Failed to record wicket"),
@@ -946,7 +958,7 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
               onClick={() => tossMutation.mutate()}
               disabled={!tossWinner || tossMutation.isPending}
             >
-              {tossMutation.isPending ? "Recording…" : flipSettled ? "Complete Toss" : "Conduct Toss"}
+              {tossMutation.isPending ? "Recording…" : (flipSettled || flippedResult) ? "Complete Toss" : "Conduct Toss"}
             </Button>
           </CardContent>
         </Card>
@@ -1366,7 +1378,7 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
         </Card>
       )}
 
-      {match.status === "IN_PROGRESS" && (
+      {match.status === "IN_PROGRESS" && phase !== "toss" && phase !== "declare_squad" && (
         <div className="flex justify-end">
           <Button variant="outline" nativeButton={false} render={<Link href={`/matches/${matchId}/result`} />}>
             View Scorecard
