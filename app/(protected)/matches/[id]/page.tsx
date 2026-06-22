@@ -89,6 +89,10 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
   const [lastBallRes, setLastBallRes] = useState<RecordBallResponse | null>(null)
 
   const [tossResult, setTossResult] = useState<TossResult>("HEAD")
+  const [isFlipAnimating, setIsFlipAnimating] = useState(false)
+  const [flipSettled, setFlipSettled] = useState(false)
+  const [pendingFlipResult, setPendingFlipResult] = useState<TossResult | null>(null)
+  const [flippedResult, setFlippedResult] = useState<TossResult | null>(null)
   const [tossWinner, setTossWinner] = useState<string>("")
   const [tossDecision, setTossDecision] = useState<TossDecision>("BAT_FIRST")
 
@@ -248,10 +252,30 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
   const flipMutation = useMutation({
     mutationFn: () => flipCoin(token),
     onSuccess: (result) => {
-      setTossResult(result)
-      toast.success(`Coin landed: ${result}`)
+      setPendingFlipResult(result)
+      setTimeout(() => {
+        setFlipSettled(true)
+        setTimeout(() => {
+          setIsFlipAnimating(false)
+          setFlipSettled(false)
+          setPendingFlipResult(null)
+          setFlippedResult(result)
+          setTossResult(result)
+          toast.success(`Coin landed: ${result}`)
+        }, 1000)
+      }, 1500)
     },
-    onError: () => toast.error("Flip failed"),
+    onError: (err) => {
+      setTimeout(() => {
+        setFlipSettled(true)
+        setTimeout(() => {
+          setIsFlipAnimating(false)
+          setFlipSettled(false)
+          setPendingFlipResult(null)
+          toast.error(err instanceof Error ? err.message : "Flip failed")
+        }, 1000)
+      }, 1500)
+    },
   })
 
   const startInningsMutation = useMutation({
@@ -568,24 +592,58 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
           <CardContent className="space-y-4">
             <div className="space-y-2">
               <Label>Toss Result</Label>
-              <div className="flex gap-2">
-                {(["HEAD", "TAIL"] as TossResult[]).map((r) => (
-                  <Button
-                    key={r}
-                    variant={tossResult === r ? "default" : "outline"}
-                    onClick={() => setTossResult(r)}
+              {isFlipAnimating ? (
+                <div className="flex items-center gap-4 py-1">
+                  <div
+                    className={`h-12 w-12 rounded-full bg-amber-400 border-[3px] border-amber-600 flex items-center justify-center text-amber-900 font-bold text-xs shadow-md shrink-0${flipSettled ? "" : " animate-coin-flip"}`}
                   >
-                    {r}
+                    {pendingFlipResult ?? "?"}
+                  </div>
+                  <span className="text-sm text-muted-foreground">
+                    {flipSettled ? `Landed: ${pendingFlipResult}` : "Flipping…"}
+                  </span>
+                </div>
+              ) : flippedResult ? (
+                <div className="flex items-center gap-3">
+                  <span className="text-sm font-medium">
+                    Coin landed: <span className="text-amber-500 font-semibold">{flippedResult}</span>
+                  </span>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setFlippedResult(null)
+                      setIsFlipAnimating(true)
+                      flipMutation.mutate()
+                    }}
+                    disabled={flipMutation.isPending}
+                  >
+                    Re-flip
                   </Button>
-                ))}
-                <Button
-                  variant="secondary"
-                  onClick={() => flipMutation.mutate()}
-                  disabled={flipMutation.isPending}
-                >
-                  Flip Coin
-                </Button>
-              </div>
+                </div>
+              ) : (
+                <div className="flex gap-2">
+                  {(["HEAD", "TAIL"] as TossResult[]).map((r) => (
+                    <Button
+                      key={r}
+                      variant={tossResult === r ? "default" : "outline"}
+                      onClick={() => setTossResult(r)}
+                    >
+                      {r}
+                    </Button>
+                  ))}
+                  <Button
+                    variant="secondary"
+                    onClick={() => {
+                      setIsFlipAnimating(true)
+                      flipMutation.mutate()
+                    }}
+                    disabled={flipMutation.isPending}
+                  >
+                    Flip Coin
+                  </Button>
+                </div>
+              )}
             </div>
 
             <div className="space-y-2">

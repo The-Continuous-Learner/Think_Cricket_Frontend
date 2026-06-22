@@ -178,7 +178,7 @@ export const getToss = (sessionToken: string, matchId: string) =>
   req<TossResponse>("/toss", "GET", { sessionToken, matchId })
 
 export const flipCoin = (sessionToken: string) =>
-  req<TossResult>("/toss/flip", "GET", { sessionToken })
+  req<TossResult>("/toss/flip", "POST", { sessionToken })
 
 export const startInnings = (data: StartInningsRequest) =>
   req<StartInningsResponse>("/innings/start", "POST", data)

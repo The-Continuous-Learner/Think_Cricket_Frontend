@@ -117,6 +117,18 @@
   --sidebar-ring: oklch(0.556 0 0);
 }
 
+.animate-coin-flip {
+  animation: coin-flip 0.5s linear infinite;
+}
+
+@keyframes coin-flip {
+  0%   { transform: perspective(200px) rotateY(0deg) scaleX(1); }
+  25%  { transform: perspective(200px) rotateY(90deg) scaleX(0); }
+  50%  { transform: perspective(200px) rotateY(180deg) scaleX(1); }
+  75%  { transform: perspective(200px) rotateY(270deg) scaleX(0); }
+  100% { transform: perspective(200px) rotateY(360deg) scaleX(1); }
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;
