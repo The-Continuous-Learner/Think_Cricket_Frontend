@@ -2,10 +2,12 @@
 
 import Link from "next/link"
 import { useRouter, usePathname } from "next/navigation"
+import { Moon, Sun } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { clearSession, getUsername, getSessionToken } from "@/lib/auth"
 import { logout } from "@/lib/api"
 import { toast } from "sonner"
+import { useTheme } from "@/components/theme-provider"
 
 const links = [
   { href: "/dashboard", label: "Matches" },
@@ -17,6 +19,7 @@ export function Nav() {
   const router = useRouter()
   const pathname = usePathname()
   const username = getUsername()
+  const { theme, toggle } = useTheme()
 
   async function handleLogout() {
     const token = getSessionToken()
@@ -52,6 +55,9 @@ export function Nav() {
       </nav>
       <div className="flex items-center gap-3">
         {username && <span className="text-sm text-muted-foreground">{username}</span>}
+        <Button variant="ghost" size="icon" onClick={toggle} aria-label="Toggle theme">
+          {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+        </Button>
         <Button variant="outline" size="sm" onClick={handleLogout}>
           Logout
         </Button>
