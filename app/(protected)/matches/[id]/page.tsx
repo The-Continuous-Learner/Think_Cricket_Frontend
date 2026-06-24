@@ -246,6 +246,7 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
   const [playerOutId, setPlayerOutId] = useState<string>("")
   const [fielderId, setFielderId] = useState<string>("")
   const [newBatsmanId, setNewBatsmanId] = useState<string>("")
+  const [dismissedBatsmen, setDismissedBatsmen] = useState<Set<string>>(new Set())
 
   const [showSubForm, setShowSubForm] = useState(false)
   const [subTeamId, setSubTeamId] = useState<string>("")
@@ -348,30 +349,34 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
         if (m.status === "NOT_STARTED") { setPhase("not_started"); return }
         if (m.status === "COMPLETED" || m.status === "ABANDONED" || m.status === "CANCELLED") { setPhase("completed"); return }
 
-        const [squadAResult, squadBResult] = await Promise.allSettled([
-          getSquad(token, matchId, m.teamAId),
-          getSquad(token, matchId, m.teamBId),
-        ])
-        const squadADeclared = squadAResult.status === "fulfilled" && squadAResult.value.players.length > 0
-        const squadBDeclared = squadBResult.status === "fulfilled" && squadBResult.value.players.length > 0
+        let squadADeclared = teamADeclared
+        let squadBDeclared = teamBDeclared
 
-        if (squadADeclared) {
-          setTeamADeclared(true)
-          setTeamASquad(squadAResult.value.players.map((p) => ({
-            playerId: p.playerId,
-            role: p.role as SquadRole,
-            captain: p.captain,
-            viceCaptain: p.viceCaptain,
-          })))
-        }
-        if (squadBDeclared) {
-          setTeamBDeclared(true)
-          setTeamBSquad(squadBResult.value.players.map((p) => ({
-            playerId: p.playerId,
-            role: p.role as SquadRole,
-            captain: p.captain,
-            viceCaptain: p.viceCaptain,
-          })))
+        if (!squadADeclared || !squadBDeclared) {
+          const [squadAResult, squadBResult] = await Promise.allSettled([
+            getSquad(token, matchId, m.teamAId),
+            getSquad(token, matchId, m.teamBId),
+          ])
+          if (!squadADeclared && squadAResult.status === "fulfilled" && squadAResult.value.players.length > 0) {
+            squadADeclared = true
+            setTeamADeclared(true)
+            setTeamASquad(squadAResult.value.players.map((p) => ({
+              playerId: p.playerId,
+              role: p.role as SquadRole,
+              captain: p.captain,
+              viceCaptain: p.viceCaptain,
+            })))
+          }
+          if (!squadBDeclared && squadBResult.status === "fulfilled" && squadBResult.value.players.length > 0) {
+            squadBDeclared = true
+            setTeamBDeclared(true)
+            setTeamBSquad(squadBResult.value.players.map((p) => ({
+              playerId: p.playerId,
+              role: p.role as SquadRole,
+              captain: p.captain,
+              viceCaptain: p.viceCaptain,
+            })))
+          }
         }
 
         if (!squadADeclared || !squadBDeclared) {
@@ -516,6 +521,7 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
       setCurrentInningsId(res.inningsId)
       setBatsmanId(null)
       setNonStrikerId(null)
+      setDismissedBatsmen(new Set())
       computePhase(true)
     },
     onError: (err) => toast.error(err instanceof Error ? err.message : "Failed to start innings"),
@@ -630,6 +636,7 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
     },
     onSuccess: () => {
       pendingWicketRef.current = false
+      setDismissedBatsmen((prev) => new Set([...prev, playerOutId]))
       if (lastBallRes?.inningsCompleted) {
         if (playerOutId === batsmanId) setBatsmanId(newBatsmanId || null)
         else setNonStrikerId(newBatsmanId || null)
@@ -1217,7 +1224,8 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
                         .filter(
                           (p) =>
                             p.playerId !== batsmanId &&
-                            p.playerId !== nonStrikerId,
+                            p.playerId !== nonStrikerId &&
+                            !dismissedBatsmen.has(p.playerId),
                         )
                         .map((p) => (
                           <SelectItem key={p.playerId} value={p.playerId}>
