@@ -233,6 +233,13 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
   const inSquadPhaseRef = useRef(false)
   const isComputingPhaseRef = useRef(false)
   const pendingWicketRef = useRef(false)
+  const pendingWicketBowlingTeamId = useRef<string | null>(null)
+  const ballFlashTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const recordBallCardRef = useRef<HTMLDivElement>(null)
+  const flashPosition = useRef<{ right: number; top: number } | null>(null)
+  const flashDivRef = useRef<HTMLDivElement>(null)
+
+  const [ballFlash, setBallFlash] = useState<{ label: string; bg: string; text: string; description: string; key: number } | null>(null)
 
   const [bowlerId, setBowlerId] = useState<string>("")
   const [openerA, setOpenerA] = useState<string>("")
@@ -324,8 +331,9 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
   }, [match, liveState, teamAPlayers, teamBPlayers, playingXI])
 
   const determineBowlingTeamPlayers = useCallback((): TeamPlayer[] => {
-    if (!match || !liveState?.activeInnings) return []
-    const bowlingTeamId = liveState.activeInnings.bowlingTeamId
+    if (!match) return []
+    const bowlingTeamId = liveState?.activeInnings?.bowlingTeamId ?? pendingWicketBowlingTeamId.current
+    if (!bowlingTeamId) return []
     const players = bowlingTeamId === match.teamAId ? teamAPlayers : teamBPlayers
     const xi = playingXI(bowlingTeamId)
     return xi.size > 0 ? players.filter((p) => xi.has(p.playerId)) : players
@@ -595,24 +603,33 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
     },
     onSuccess: async (res) => {
       setLastBallRes(res)
-      refetchLive()
-      refetchScorecard()
+      showBallFlash(res)
       if (res.wicket) {
+        refetchLive()
+        refetchScorecard()
         pendingWicketRef.current = true
+        pendingWicketBowlingTeamId.current = liveState?.activeInnings?.bowlingTeamId ?? null
         setPhase("recording")
         setPlayerOutId(batsmanId ?? "")
-      } else {
+      } else if (res.inningsCompleted || res.overCompleted) {
         autoSwapBatsmen(res)
-        if (res.inningsCompleted) {
-          setPhase("innings_complete")
-          resetBallState()
-        } else if (res.overCompleted) {
-          setPhase("over_complete")
-          swapBatsmenForNewOver()
-          resetBallState()
-        } else {
-          resetBallState()
-        }
+        setTimeout(() => {
+          refetchLive()
+          refetchScorecard()
+          if (res.inningsCompleted) {
+            setPhase("innings_complete")
+            resetBallState()
+          } else {
+            setPhase("over_complete")
+            swapBatsmenForNewOver()
+            resetBallState()
+          }
+        }, 1000)
+      } else {
+        refetchLive()
+        refetchScorecard()
+        autoSwapBatsmen(res)
+        resetBallState()
       }
     },
     onError: (err) => toast.error(err instanceof Error ? err.message : "Failed to record ball"),
@@ -636,6 +653,7 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
     },
     onSuccess: () => {
       pendingWicketRef.current = false
+      pendingWicketBowlingTeamId.current = null
       setDismissedBatsmen((prev) => new Set([...prev, playerOutId]))
       if (lastBallRes?.inningsCompleted) {
         if (playerOutId === batsmanId) setBatsmanId(newBatsmanId || null)
@@ -764,6 +782,41 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
       setBatsmanId(nonStrikerId)
       setNonStrikerId(prev)
     }
+  }
+
+  useEffect(() => {
+    const el = flashDivRef.current
+    if (!el || !flashPosition.current) return
+    el.style.right = `${flashPosition.current.right}px`
+    el.style.top = `${flashPosition.current.top}px`
+  }, [ballFlash])
+
+  function showBallFlash(res: RecordBallResponse) {
+    const rect = recordBallCardRef.current?.getBoundingClientRect()
+    flashPosition.current = rect
+      ? { right: window.innerWidth - rect.right + 24, top: rect.top + rect.height / 2 }
+      : null
+    const k = Date.now()
+    const flash = res.wicket
+      ? { label: "W!", bg: "bg-red-500", text: "text-white", description: "Wicket!", key: k }
+      : res.boundaryType === "SIX"
+      ? { label: "6", bg: "bg-amber-500", text: "text-white", description: "SIX!", key: k }
+      : res.boundaryType === "FOUR"
+      ? { label: "4", bg: "bg-green-600", text: "text-white", description: "FOUR!", key: k }
+      : res.extraType === "WIDE"
+      ? { label: "Wd", bg: "bg-yellow-400", text: "text-black", description: `Wide +${res.extraRuns}`, key: k }
+      : res.extraType === "NO_BALL"
+      ? { label: "NB", bg: "bg-orange-500", text: "text-white", description: `No Ball +${res.extraRuns}`, key: k }
+      : res.extraType === "BYE"
+      ? { label: `${res.extraRuns}b`, bg: "bg-blue-500", text: "text-white", description: `${res.extraRuns} Bye`, key: k }
+      : res.extraType === "LEG_BYE"
+      ? { label: `${res.extraRuns}lb`, bg: "bg-blue-500", text: "text-white", description: `${res.extraRuns} Leg Bye`, key: k }
+      : res.runs === 0
+      ? { label: "•", bg: "bg-muted", text: "text-muted-foreground", description: "Dot ball", key: k }
+      : { label: String(res.runs), bg: "bg-primary", text: "text-primary-foreground", description: `${res.runs} run${res.runs !== 1 ? "s" : ""}`, key: k }
+    if (ballFlashTimer.current) clearTimeout(ballFlashTimer.current)
+    setBallFlash(flash)
+    ballFlashTimer.current = setTimeout(() => setBallFlash(null), 1000)
   }
 
   function swapBatsmenForNewOver() {
@@ -1245,7 +1298,7 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
               </CardContent>
             </Card>
           ) : (
-            <Card>
+            <Card ref={recordBallCardRef}>
               <CardHeader>
                 <div className="flex items-center justify-between">
                   <CardTitle>Record Ball</CardTitle>
@@ -1373,6 +1426,7 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
                     Swap ⇄
                   </Button>
                 </div>
+
               </CardContent>
             </Card>
           )}
@@ -1627,6 +1681,19 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
               </CardContent>
             </Card>
           ))}
+        </div>
+      )}
+
+      {ballFlash && (
+        <div
+          key={ballFlash.key}
+          ref={flashDivRef}
+          className="fixed flex flex-col items-center gap-1 animate-in fade-in zoom-in-75 duration-150 pointer-events-none z-50 -translate-y-1/2"
+        >
+          <span className={`flex items-center justify-center w-16 h-16 rounded-full text-3xl font-black shadow-lg ${ballFlash.bg} ${ballFlash.text}`}>
+            {ballFlash.label}
+          </span>
+          <span className="text-xs font-medium text-muted-foreground">{ballFlash.description}</span>
         </div>
       )}
     </div>
