@@ -79,6 +79,12 @@ async function req<T>(
     body: fetchBody,
   })
   if (!res.ok) {
+    if (res.status === 401 && typeof window !== "undefined") {
+      localStorage.removeItem("sessionToken")
+      localStorage.removeItem("userId")
+      localStorage.removeItem("username")
+      window.location.replace("/login")
+    }
     const text = await res.text().catch(() => "")
     let message = `HTTP ${res.status}`
     if (text) {
