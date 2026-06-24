@@ -18,6 +18,14 @@ import {
 } from "@/components/ui/select"
 import { Separator } from "@/components/ui/separator"
 import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table"
+import {
   getMatchDetails,
   getMatchLiveState,
   getToss,
@@ -255,6 +263,7 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
   const [newBatsmanId, setNewBatsmanId] = useState<string>("")
   const [dismissedBatsmen, setDismissedBatsmen] = useState<Set<string>>(new Set())
 
+  const [showEditBatsmen, setShowEditBatsmen] = useState(false)
   const [showSubForm, setShowSubForm] = useState(false)
   const [subTeamId, setSubTeamId] = useState<string>("")
   const [subPlayerOutId, setSubPlayerOutId] = useState<string>("")
@@ -1291,7 +1300,7 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
 
                 <Button
                   onClick={() => recordWicketMutation.mutate()}
-                  disabled={!playerOutId || recordWicketMutation.isPending}
+                  disabled={!playerOutId || (!newBatsmanId && !lastBallRes?.inningsCompleted) || recordWicketMutation.isPending}
                 >
                   {recordWicketMutation.isPending ? "Recording…" : "Confirm Wicket"}
                 </Button>
@@ -1302,17 +1311,74 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
               <CardHeader>
                 <div className="flex items-center justify-between">
                   <CardTitle>Record Ball</CardTitle>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => endOverMutation.mutate()}
-                    disabled={endOverMutation.isPending}
-                  >
-                    {endOverMutation.isPending ? "Ending…" : "End Over"}
-                  </Button>
+                  <div className="flex gap-2">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setShowEditBatsmen((v) => !v)}
+                    >
+                      {showEditBatsmen ? "Done" : "Edit Batsmen"}
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => endOverMutation.mutate()}
+                      disabled={endOverMutation.isPending}
+                    >
+                      {endOverMutation.isPending ? "Ending…" : "End Over"}
+                    </Button>
+                  </div>
                 </div>
               </CardHeader>
               <CardContent className="space-y-5">
+                {showEditBatsmen && (
+                  <div className="space-y-3 pb-4 border-b border-border">
+                    <div className="space-y-2">
+                      <Label>Striker</Label>
+                      <Select
+                        value={batsmanId ?? ""}
+                        onValueChange={(v) => v && setBatsmanId(v)}
+                      >
+                        <SelectTrigger>
+                          <span className="flex flex-1 text-left text-sm">
+                            {batsmanId
+                              ? (battingPlayers.find((p) => p.playerId === batsmanId)?.name ?? batsmanId)
+                              : <span className="text-muted-foreground">Select striker</span>}
+                          </span>
+                        </SelectTrigger>
+                        <SelectContent>
+                          {battingPlayers
+                            .filter((p) => p.playerId !== nonStrikerId)
+                            .map((p) => (
+                              <SelectItem key={p.playerId} value={p.playerId}>{p.name}</SelectItem>
+                            ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Non-striker</Label>
+                      <Select
+                        value={nonStrikerId ?? ""}
+                        onValueChange={(v) => v && setNonStrikerId(v)}
+                      >
+                        <SelectTrigger>
+                          <span className="flex flex-1 text-left text-sm">
+                            {nonStrikerId
+                              ? (battingPlayers.find((p) => p.playerId === nonStrikerId)?.name ?? nonStrikerId)
+                              : <span className="text-muted-foreground">Select non-striker</span>}
+                          </span>
+                        </SelectTrigger>
+                        <SelectContent>
+                          {battingPlayers
+                            .filter((p) => p.playerId !== batsmanId)
+                            .map((p) => (
+                              <SelectItem key={p.playerId} value={p.playerId}>{p.name}</SelectItem>
+                            ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                )}
                 <div className="space-y-2">
                   <Label>Delivery</Label>
                   <div className="flex gap-2 flex-wrap">
@@ -1624,59 +1690,67 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
                   Innings {inn.inningsNumber} — {teamName(inn.battingTeamId)} batting · {inn.totalRuns}/{inn.totalWickets} ({inn.totalOvers} ov)
                 </CardTitle>
               </CardHeader>
-              <CardContent className="space-y-4">
+              <CardContent className="space-y-4 p-0 pb-2">
                 <div>
-                  <p className="text-xs font-medium text-muted-foreground mb-1 uppercase tracking-wide">Batting</p>
-                  <div className="w-full text-sm">
-                    <div className="grid grid-cols-[1fr_auto_auto_auto_auto_auto] gap-x-4 text-xs text-muted-foreground pb-1 border-b border-border/40">
-                      <span>Batter</span>
-                      <span className="text-right">R</span>
-                      <span className="text-right">B</span>
-                      <span className="text-right">4s</span>
-                      <span className="text-right">6s</span>
-                      <span className="text-right">SR</span>
-                    </div>
-                    {inn.batting.sort((a, b) => a.battingPosition - b.battingPosition).map((b) => (
-                      <div key={b.id} className="grid grid-cols-[1fr_auto_auto_auto_auto_auto] gap-x-4 py-1 border-b border-border/20 last:border-0">
-                        <div>
-                          <span className="font-medium">{playerName(b.playerId)}</span>
-                          {b.out && b.dismissalType && (
-                            <span className="ml-1.5 text-xs text-muted-foreground">{b.dismissalType}</span>
-                          )}
-                          {!b.out && <span className="ml-1.5 text-xs text-muted-foreground">not out</span>}
-                        </div>
-                        <span className="text-right font-medium">{b.runs}</span>
-                        <span className="text-right text-muted-foreground">{b.balls}</span>
-                        <span className="text-right text-muted-foreground">{b.fours}</span>
-                        <span className="text-right text-muted-foreground">{b.sixes}</span>
-                        <span className="text-right text-muted-foreground">{b.strikeRate.toFixed(1)}</span>
-                      </div>
-                    ))}
-                  </div>
+                  <p className="text-xs font-medium text-muted-foreground px-6 pt-4 pb-1 uppercase tracking-wide">Batting</p>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Batter</TableHead>
+                        <TableHead className="text-right w-10">R</TableHead>
+                        <TableHead className="text-right w-10">B</TableHead>
+                        <TableHead className="text-right w-10">4s</TableHead>
+                        <TableHead className="text-right w-10">6s</TableHead>
+                        <TableHead className="text-right w-16">SR</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {inn.batting.sort((a, b) => a.battingPosition - b.battingPosition).map((b) => (
+                        <TableRow key={b.id}>
+                          <TableCell>
+                            <span className="font-medium">{playerName(b.playerId)}</span>
+                            {b.out && b.dismissalType && (
+                              <span className="ml-1.5 text-xs text-muted-foreground">{b.dismissalType}</span>
+                            )}
+                            {!b.out && <span className="ml-1.5 text-xs text-primary">not out</span>}
+                          </TableCell>
+                          <TableCell className="text-right font-medium tabular-nums">{b.runs}</TableCell>
+                          <TableCell className="text-right text-muted-foreground tabular-nums">{b.balls}</TableCell>
+                          <TableCell className="text-right text-muted-foreground tabular-nums">{b.fours}</TableCell>
+                          <TableCell className="text-right text-muted-foreground tabular-nums">{b.sixes}</TableCell>
+                          <TableCell className="text-right text-muted-foreground tabular-nums">{b.strikeRate.toFixed(1)}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
                 </div>
 
                 <div>
-                  <p className="text-xs font-medium text-muted-foreground mb-1 uppercase tracking-wide">Bowling</p>
-                  <div className="w-full text-sm">
-                    <div className="grid grid-cols-[1fr_auto_auto_auto_auto_auto] gap-x-4 text-xs text-muted-foreground pb-1 border-b border-border/40">
-                      <span>Bowler</span>
-                      <span className="text-right">O</span>
-                      <span className="text-right">M</span>
-                      <span className="text-right">R</span>
-                      <span className="text-right">W</span>
-                      <span className="text-right">Eco</span>
-                    </div>
-                    {inn.bowling.map((b) => (
-                      <div key={b.id} className="grid grid-cols-[1fr_auto_auto_auto_auto_auto] gap-x-4 py-1 border-b border-border/20 last:border-0">
-                        <span className="font-medium">{playerName(b.bowlerId)}</span>
-                        <span className="text-right">{b.overs}</span>
-                        <span className="text-right text-muted-foreground">{b.maidens}</span>
-                        <span className="text-right text-muted-foreground">{b.runsConceded}</span>
-                        <span className="text-right font-medium">{b.wickets}</span>
-                        <span className="text-right text-muted-foreground">{b.economy.toFixed(1)}</span>
-                      </div>
-                    ))}
-                  </div>
+                  <p className="text-xs font-medium text-muted-foreground px-6 pt-2 pb-1 uppercase tracking-wide">Bowling</p>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Bowler</TableHead>
+                        <TableHead className="text-right w-10">O</TableHead>
+                        <TableHead className="text-right w-10">M</TableHead>
+                        <TableHead className="text-right w-10">R</TableHead>
+                        <TableHead className="text-right w-10">W</TableHead>
+                        <TableHead className="text-right w-16">Eco</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {inn.bowling.map((b) => (
+                        <TableRow key={b.id}>
+                          <TableCell className="font-medium">{playerName(b.bowlerId)}</TableCell>
+                          <TableCell className="text-right tabular-nums">{b.overs}</TableCell>
+                          <TableCell className="text-right text-muted-foreground tabular-nums">{b.maidens}</TableCell>
+                          <TableCell className="text-right text-muted-foreground tabular-nums">{b.runsConceded}</TableCell>
+                          <TableCell className="text-right font-medium tabular-nums">{b.wickets}</TableCell>
+                          <TableCell className="text-right text-muted-foreground tabular-nums">{b.economy.toFixed(1)}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
                 </div>
               </CardContent>
             </Card>
