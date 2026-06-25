@@ -517,3 +517,23 @@ export interface SubstitutionResponse {
   overNumber: number
   substitutionType: SubstitutionType
 }
+
+export interface SetBatsmenRequest {
+  sessionToken: string
+  inningsId: string
+  strikerId: string
+  nonStrikerId: string
+}
+
+export interface CurrentBatsmenResponse {
+  inningsId: string
+  strikerId: string
+  strikerName: string
+  nonStrikerId: string
+  nonStrikerName: string
+}
+
+export interface EligibleBatsmanEntry {
+  playerId: string
+  playerName: string
+}

@@ -42,6 +42,9 @@ import type {
   SquadResponse,
   RecordSubstitutionRequest,
   SubstitutionResponse,
+  SetBatsmenRequest,
+  CurrentBatsmenResponse,
+  EligibleBatsmanEntry,
 } from "./types"
 
 const BASE = "/api"
@@ -234,3 +237,12 @@ export const getCurrentXI = (sessionToken: string, matchId: string, teamId: stri
 
 export const recordSubstitution = (data: RecordSubstitutionRequest) =>
   req<SubstitutionResponse>("/squad/substitute", "POST", data)
+
+export const setBatsmen = (data: SetBatsmenRequest) =>
+  req<CurrentBatsmenResponse>("/innings/set-batsmen", "POST", data)
+
+export const getCurrentBatsmen = (sessionToken: string, inningsId: string) =>
+  req<CurrentBatsmenResponse>("/innings/current-batsmen", "GET", { sessionToken, inningsId })
+
+export const getEligibleBatsmen = (sessionToken: string, inningsId: string) =>
+  req<EligibleBatsmanEntry[]>("/innings/eligible-batsmen", "GET", { sessionToken, inningsId })

@@ -31,6 +31,7 @@ import {
   getToss,
   getTeamPlayers,
   getSquad,
+  getCurrentXI,
   getScorecard,
   getInningsList,
   startMatch,
@@ -47,6 +48,9 @@ import {
   endMatch,
   deleteMatch,
   declareSquad,
+  setBatsmen,
+  getCurrentBatsmen,
+  getEligibleBatsmen,
 } from "@/lib/api"
 import { ApiError } from "@/lib/api"
 import { getSessionToken } from "@/lib/auth"
@@ -61,6 +65,7 @@ import type {
   RecordBallResponse,
   TeamPlayer,
   SubstitutionType,
+  EligibleBatsmanEntry,
 } from "@/lib/types"
 
 type Phase =
@@ -261,10 +266,18 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
   const [playerOutId, setPlayerOutId] = useState<string>("")
   const [fielderId, setFielderId] = useState<string>("")
   const [newBatsmanId, setNewBatsmanId] = useState<string>("")
-  const [dismissedBatsmen, setDismissedBatsmen] = useState<Set<string>>(new Set())
+  const [eligibleBatsmen, setEligibleBatsmen] = useState<EligibleBatsmanEntry[]>([])
+  const wicketBowlerId = useRef<string | null>(null)
+  const currentOverBowlerIdRef = useRef<string | null>(null)
+  const completedInningsNumberRef = useRef<number>(1)
 
   const [showEditBatsmen, setShowEditBatsmen] = useState(false)
   const [showSubForm, setShowSubForm] = useState(false)
+  const [milestone, setMilestone] = useState<{ label: string; subLabel: string; name: string; colorClass: string; key: number } | null>(null)
+  const milestoneTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const seenMilestones = useRef<Set<string>>(new Set())
+  const milestoneSeedDone = useRef(false)
+  const [manualBattingTeamId, setManualBattingTeamId] = useState<string>("")
   const [subTeamId, setSubTeamId] = useState<string>("")
   const [subPlayerOutId, setSubPlayerOutId] = useState<string>("")
   const [subPlayerInId, setSubPlayerInId] = useState<string>("")
@@ -314,6 +327,15 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
       setTeamBSquad(teamBPlayers.map((p) => ({ playerId: p.playerId, role: "PLAYING" as const, captain: false, viceCaptain: false })))
     }
   }, [teamBPlayers]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (phase === "start_innings" && match && tossData) {
+      const completedCount = scorecard?.innings.length ?? 0
+      const firstBatter = tossData.decision === "BAT_FIRST" ? tossData.winnerTeamId : tossData.loserTeamId
+      const secondBatter = firstBatter === match.teamAId ? match.teamBId : match.teamAId
+      setManualBattingTeamId(completedCount % 2 === 0 ? firstBatter : secondBatter)
+    }
+  }, [phase]) // eslint-disable-line react-hooks/exhaustive-deps
 
   function teamName(id: string) {
     if (id === match?.teamAId) return match.teamAName
@@ -370,26 +392,42 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
         let squadBDeclared = teamBDeclared
 
         if (!squadADeclared || !squadBDeclared) {
-          const [squadAResult, squadBResult] = await Promise.allSettled([
+          const [squadAResult, squadBResult, currentXIAResult, currentXIBResult] = await Promise.allSettled([
             getSquad(token, matchId, m.teamAId),
             getSquad(token, matchId, m.teamBId),
+            getCurrentXI(token, matchId, m.teamAId),
+            getCurrentXI(token, matchId, m.teamBId),
           ])
+
+          function extractXIIds(result: PromiseSettledResult<SquadResponse>): Set<string> | null {
+            if (result.status !== "fulfilled") return null
+            const raw = result.value as unknown
+            const list: Array<{ playerId: string }> = Array.isArray(raw)
+              ? raw
+              : Array.isArray((raw as SquadResponse)?.players)
+                ? (raw as SquadResponse).players
+                : []
+            return list.length > 0 ? new Set(list.map((p) => p.playerId)) : null
+          }
+
           if (!squadADeclared && squadAResult.status === "fulfilled" && squadAResult.value.players.length > 0) {
+            const xiIds = extractXIIds(currentXIAResult)
             squadADeclared = true
             setTeamADeclared(true)
             setTeamASquad(squadAResult.value.players.map((p) => ({
               playerId: p.playerId,
-              role: p.role as SquadRole,
+              role: (xiIds ? (xiIds.has(p.playerId) ? "PLAYING" : "SUBSTITUTE") : p.role) as SquadRole,
               captain: p.captain,
               viceCaptain: p.viceCaptain,
             })))
           }
           if (!squadBDeclared && squadBResult.status === "fulfilled" && squadBResult.value.players.length > 0) {
+            const xiIds = extractXIIds(currentXIBResult)
             squadBDeclared = true
             setTeamBDeclared(true)
             setTeamBSquad(squadBResult.value.players.map((p) => ({
               playerId: p.playerId,
-              role: p.role as SquadRole,
+              role: (xiIds ? (xiIds.has(p.playerId) ? "PLAYING" : "SUBSTITUTE") : p.role) as SquadRole,
               captain: p.captain,
               viceCaptain: p.viceCaptain,
             })))
@@ -412,10 +450,10 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
 
         if (!toss) { setPhase("toss"); return }
 
-        const { activeInnings, activeOver, lastBatsmanId, lastNonStrikerId } = live
+        const { activeInnings, activeOver } = live
 
         if (!activeInnings) {
-          if (m.format !== "Test") {
+          if (m.totalOvers > 0) {
             const inningsList = await getInningsList(token, matchId)
             if (inningsList.length >= 2) { setPhase("complete_result"); return }
           }
@@ -424,18 +462,46 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
         }
 
         setCurrentInningsId(activeInnings.inningsId)
-        if (lastBatsmanId && batsmanId === null) setBatsmanId(lastBatsmanId)
-        if (lastNonStrikerId && nonStrikerId === null) setNonStrikerId(lastNonStrikerId)
+        const pendingWicketStr = sessionStorage.getItem(`pendingWicket_${matchId}`)
+        if (pendingWicketStr) {
+          const pw = JSON.parse(pendingWicketStr) as {
+            ballRes: RecordBallResponse
+            playerOutId: string
+            bowlerId: string | null
+            bowlingTeamId: string | null
+            nonStrikerId: string | null
+          }
+          setLastBallRes(pw.ballRes)
+          setPlayerOutId(pw.playerOutId)
+          setBatsmanId(null)
+          setNonStrikerId(pw.nonStrikerId)
+          pendingWicketRef.current = true
+          pendingWicketBowlingTeamId.current = pw.bowlingTeamId
+          wicketBowlerId.current = pw.bowlerId
+          try {
+            const eligible = await getEligibleBatsmen(token, activeInnings.inningsId)
+            setEligibleBatsmen(eligible ?? [])
+          } catch { setEligibleBatsmen([]) }
+        } else if (batsmanId === null) {
+          try {
+            const pair = await getCurrentBatsmen(token, activeInnings.inningsId)
+            setBatsmanId(pair.strikerId)
+            setNonStrikerId(pair.nonStrikerId)
+          } catch {
+            // 400 = no batting state yet; opener selection UI will appear
+          }
+        }
 
         if (!activeOver) { setPhase("start_over"); return }
 
         setCurrentOverId(activeOver.overId)
+        currentOverBowlerIdRef.current = activeOver.bowlerId
         setPhase("recording")
       } finally {
         if (forceRefetch) isComputingPhaseRef.current = false
       }
     },
-    [match, liveState, token, matchId, batsmanId, nonStrikerId, refetchMatch, refetchLive],
+    [match, liveState, token, matchId, refetchMatch, refetchLive],
   )
 
   useEffect(() => {
@@ -524,12 +590,12 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
       const inningsList = await getInningsList(token, matchId)
       const completedCount = inningsList.length
 
-      let battingTeamId: string
-      if (completedCount === 0) {
-        battingTeamId = tossData.decision === "BAT_FIRST" ? tossData.winnerTeamId : tossData.loserTeamId
-      } else {
-        battingTeamId = tossData.decision === "BAT_FIRST" ? tossData.loserTeamId : tossData.winnerTeamId
-      }
+      const firstBatter = tossData.decision === "BAT_FIRST" ? tossData.winnerTeamId : tossData.loserTeamId
+      const secondBatter = firstBatter === match.teamAId ? match.teamBId : match.teamAId
+      const defaultBatter = completedCount % 2 === 0 ? firstBatter : secondBatter
+      const battingTeamId = (match.totalOvers === 0 && manualBattingTeamId)
+        ? manualBattingTeamId
+        : defaultBatter
       const bowlingTeamId = battingTeamId === match.teamAId ? match.teamBId : match.teamAId
 
       return startInnings({ sessionToken: token, matchId, battingTeamId, bowlingTeamId })
@@ -538,25 +604,29 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
       setCurrentInningsId(res.inningsId)
       setBatsmanId(null)
       setNonStrikerId(null)
-      setDismissedBatsmen(new Set())
+      setEligibleBatsmen([])
       computePhase(true)
     },
     onError: (err) => toast.error(err instanceof Error ? err.message : "Failed to start innings"),
   })
 
   const startOverMutation = useMutation({
-    mutationFn: () => {
+    mutationFn: async () => {
       if (!currentInningsId) throw new Error("No innings")
-      const isFirstOver = !liveState?.lastBatsmanId
-      if (isFirstOver) {
-        setBatsmanId(openerA)
-        setNonStrikerId(openerB)
+      const overReq = startOver({ sessionToken: token, inningsId: currentInningsId, bowlerId })
+      if (batsmanId === null) {
+        const [overRes] = await Promise.all([
+          overReq,
+          setBatsmen({ sessionToken: token, inningsId: currentInningsId, strikerId: openerA, nonStrikerId: openerB }),
+        ])
+        return overRes
       }
-      return startOver({ sessionToken: token, inningsId: currentInningsId, bowlerId })
+      return overReq
     },
     onSuccess: (res) => {
       setCurrentOverId(res.overId)
-      if (!liveState?.lastBatsmanId) {
+      currentOverBowlerIdRef.current = res.bowlerId
+      if (batsmanId === null) {
         setBatsmanId(openerA)
         setNonStrikerId(openerB)
       }
@@ -569,6 +639,9 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
   const recordBallMutation = useMutation({
     mutationFn: () => {
       if (!currentOverId || !batsmanId || !nonStrikerId) throw new Error("Missing context")
+      if (isWicket) {
+        wicketBowlerId.current = currentOverBowlerIdRef.current ?? liveState?.activeOver?.bowlerId ?? null
+      }
       const finalRuns = runs
       const finalExtraRuns =
         deliveryMode === "wide"
@@ -614,30 +687,62 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
       setLastBallRes(res)
       showBallFlash(res)
       if (res.wicket) {
+        const capturedBowlerId = currentOverBowlerIdRef.current ?? liveState?.activeOver?.bowlerId ?? null
+        const capturedBowlingTeamId = liveState?.activeInnings?.bowlingTeamId ?? null
+        const capturedPlayerOutId = batsmanId ?? ""
+        wicketBowlerId.current = capturedBowlerId
+        pendingWicketRef.current = true
+        pendingWicketBowlingTeamId.current = capturedBowlingTeamId
+        setPlayerOutId(capturedPlayerOutId)
+        setBatsmanId(null)
+        sessionStorage.setItem(
+          `pendingWicket_${matchId}`,
+          JSON.stringify({ ballRes: res, playerOutId: capturedPlayerOutId, bowlerId: capturedBowlerId, bowlingTeamId: capturedBowlingTeamId, nonStrikerId }),
+        )
+        setPhase("recording")
         refetchLive()
         refetchScorecard()
-        pendingWicketRef.current = true
-        pendingWicketBowlingTeamId.current = liveState?.activeInnings?.bowlingTeamId ?? null
-        setPhase("recording")
-        setPlayerOutId(batsmanId ?? "")
+        if (currentInningsId) {
+          try {
+            const eligible = await getEligibleBatsmen(token, currentInningsId)
+            setEligibleBatsmen(eligible ?? [])
+          } catch { setEligibleBatsmen([]) }
+        }
       } else if (res.inningsCompleted || res.overCompleted) {
-        autoSwapBatsmen(res)
+        const totalRuns = res.runs + res.extraRuns
+        const shouldSwap = (totalRuns % 2 === 1) !== res.overCompleted
+        if (shouldSwap) {
+          const prev = batsmanId
+          setBatsmanId(nonStrikerId)
+          setNonStrikerId(prev)
+        }
+        if (res.inningsCompleted) {
+          completedInningsNumberRef.current = liveState?.activeInnings?.inningsNumber ?? completedInningsNumberRef.current
+        }
         setTimeout(() => {
           refetchLive()
           refetchScorecard()
           if (res.inningsCompleted) {
-            setPhase("innings_complete")
+            if (match?.totalOvers === 0) {
+              endInningsMutation.mutate()
+            } else {
+              setPhase("innings_complete")
+            }
             resetBallState()
           } else {
             setPhase("over_complete")
-            swapBatsmenForNewOver()
             resetBallState()
           }
         }, 1000)
       } else {
+        const totalRuns = res.runs + res.extraRuns
+        if (totalRuns % 2 === 1) {
+          const prev = batsmanId
+          setBatsmanId(nonStrikerId)
+          setNonStrikerId(prev)
+        }
         refetchLive()
         refetchScorecard()
-        autoSwapBatsmen(res)
         resetBallState()
       }
     },
@@ -645,51 +750,75 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
   })
 
   const recordWicketMutation = useMutation({
-    mutationFn: () => {
-      if (!lastBallRes) throw new Error("No ball recorded")
-      return recordWicket({
+    mutationFn: async () => {
+      if (!lastBallRes || !currentInningsId) throw new Error("No ball recorded")
+      const wasInningsCompleted = lastBallRes.inningsCompleted
+      const wasOverCompleted = lastBallRes.overCompleted
+
+      const effectiveBowlerId = wicketBowlerId.current ?? currentOverBowlerIdRef.current ?? liveState?.activeOver?.bowlerId ?? null
+      try {
+        await recordWicket({
+          sessionToken: token,
+          ballId: lastBallRes.ballId,
+          playerOutId,
+          type: wicketType,
+          bowlerId: ["RUN_OUT", "OBSTRUCTING_FIELD", "RETIRED_HURT", "TIMED_OUT"].includes(wicketType)
+            ? null
+            : effectiveBowlerId,
+          fielderId: fielderId || null,
+        })
+      } catch (err) {
+        if (!(err instanceof ApiError && err.message.toLowerCase().includes("already recorded"))) {
+          throw err
+        }
+      }
+
+      if (wasInningsCompleted) {
+        return { strikerId: null as string | null, nonStrikerId: nonStrikerId, wasOverCompleted, wasInningsCompleted }
+      }
+
+      const pair = await setBatsmen({
         sessionToken: token,
-        ballId: lastBallRes.ballId,
-        playerOutId,
-        type: wicketType,
-        bowlerId: ["RUN_OUT", "OBSTRUCTING_FIELD", "RETIRED_HURT", "TIMED_OUT"].includes(
-          wicketType,
-        )
-          ? null
-          : liveState?.activeOver?.bowlerId ?? null,
-        fielderId: fielderId || null,
+        inningsId: currentInningsId,
+        strikerId: newBatsmanId,
+        nonStrikerId: nonStrikerId ?? "",
       })
+
+      if (wasOverCompleted) {
+        const swapped = await setBatsmen({
+          sessionToken: token,
+          inningsId: currentInningsId,
+          strikerId: pair.nonStrikerId,
+          nonStrikerId: pair.strikerId,
+        })
+        return { strikerId: swapped.strikerId as string | null, nonStrikerId: swapped.nonStrikerId, wasOverCompleted, wasInningsCompleted }
+      }
+
+      return { strikerId: pair.strikerId as string | null, nonStrikerId: pair.nonStrikerId, wasOverCompleted, wasInningsCompleted }
     },
-    onSuccess: () => {
+    onSuccess: (res) => {
+      sessionStorage.removeItem(`pendingWicket_${matchId}`)
       pendingWicketRef.current = false
       pendingWicketBowlingTeamId.current = null
-      setDismissedBatsmen((prev) => new Set([...prev, playerOutId]))
-      if (lastBallRes?.inningsCompleted) {
-        if (playerOutId === batsmanId) setBatsmanId(newBatsmanId || null)
-        else setNonStrikerId(newBatsmanId || null)
-        setNewBatsmanId("")
-        setFielderId("")
-        resetBallState()
-        setPhase("innings_complete")
-      } else if (lastBallRes?.overCompleted) {
-        if (playerOutId === batsmanId) {
-          setBatsmanId(nonStrikerId)
-          setNonStrikerId(newBatsmanId || null)
+      wicketBowlerId.current = null
+      if (res.strikerId) setBatsmanId(res.strikerId)
+      if (res.nonStrikerId) setNonStrikerId(res.nonStrikerId)
+      setEligibleBatsmen([])
+      setNewBatsmanId("")
+      setFielderId("")
+      resetBallState()
+      if (res.wasInningsCompleted) {
+        completedInningsNumberRef.current = liveState?.activeInnings?.inningsNumber ?? completedInningsNumberRef.current
+        if (match?.totalOvers === 0) {
+          endInningsMutation.mutate()
         } else {
-          setBatsmanId(newBatsmanId || null)
-          setNonStrikerId(batsmanId)
+          setPhase("innings_complete")
         }
-        setNewBatsmanId("")
-        setFielderId("")
-        resetBallState()
+      } else if (res.wasOverCompleted) {
         setPhase("over_complete")
-      } else {
-        if (playerOutId === batsmanId) setBatsmanId(newBatsmanId || null)
-        else setNonStrikerId(newBatsmanId || null)
-        setNewBatsmanId("")
-        setFielderId("")
-        resetBallState()
       }
+      refetchLive()
+      refetchScorecard()
     },
     onError: (err) => toast.error(err instanceof Error ? err.message : "Failed to record wicket"),
   })
@@ -734,17 +863,25 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
     },
     onSuccess: () => {
       setCurrentOverId(null)
+      const prev = batsmanId
+      setBatsmanId(nonStrikerId)
+      setNonStrikerId(prev)
       setPhase("over_complete")
-      swapBatsmenForNewOver()
       resetBallState()
     },
     onError: (err) => toast.error(err instanceof Error ? err.message : "Failed to end over"),
   })
 
   const endInningsMutation = useMutation({
-    mutationFn: () => {
+    mutationFn: async () => {
       if (!currentInningsId) throw new Error("No innings")
-      return endInnings({ sessionToken: token, inningsId: currentInningsId })
+      try {
+        await endInnings({ sessionToken: token, inningsId: currentInningsId })
+      } catch (err) {
+        if (!(err instanceof ApiError && (err.message.toLowerCase().includes("not active") || err.message.toLowerCase().includes("already")))) {
+          throw err
+        }
+      }
     },
     onSuccess: () => {
       setCurrentInningsId(null)
@@ -783,15 +920,6 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
     setLastBallRes(null)
   }
 
-  function autoSwapBatsmen(res: RecordBallResponse) {
-    const totalRuns = res.runs + res.extraRuns
-    const legalSwap = res.legalDelivery && totalRuns % 2 === 1
-    if (legalSwap) {
-      const prev = batsmanId
-      setBatsmanId(nonStrikerId)
-      setNonStrikerId(prev)
-    }
-  }
 
   useEffect(() => {
     const el = flashDivRef.current
@@ -828,17 +956,70 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
     ballFlashTimer.current = setTimeout(() => setBallFlash(null), 1000)
   }
 
-  function swapBatsmenForNewOver() {
-    const prev = batsmanId
-    setBatsmanId(nonStrikerId)
-    setNonStrikerId(prev)
+  function showMilestone(label: string, subLabel: string, name: string, colorClass: string) {
+    if (milestoneTimer.current) clearTimeout(milestoneTimer.current)
+    setMilestone({ label, subLabel, name, colorClass, key: Date.now() })
+    milestoneTimer.current = setTimeout(() => setMilestone(null), 3000)
   }
+
+  useEffect(() => {
+    if (!scorecard) return
+
+    if (!milestoneSeedDone.current) {
+      for (const inn of scorecard.innings) {
+        for (const b of inn.batting) {
+          for (const t of [25, 50, 75, 100]) {
+            if (b.runs >= t) seenMilestones.current.add(`${inn.inningsId}-bat-${b.playerId}-${t}`)
+          }
+        }
+        for (const b of inn.bowling) {
+          for (const t of [3, 5]) {
+            if (b.wickets >= t) seenMilestones.current.add(`${inn.inningsId}-bowl-${b.bowlerId}-${t}`)
+          }
+        }
+      }
+      milestoneSeedDone.current = true
+      return
+    }
+
+    for (const inn of scorecard.innings) {
+      for (const b of inn.batting) {
+        for (const { t, label, subLabel, colorClass } of [
+          { t: 100, label: "CENTURY!", subLabel: "100 runs", colorClass: "text-yellow-400" },
+          { t: 75, label: "75!", subLabel: "75 runs", colorClass: "text-orange-400" },
+          { t: 50, label: "HALF CENTURY!", subLabel: "50 runs", colorClass: "text-green-400" },
+          { t: 25, label: "25!", subLabel: "25 runs", colorClass: "text-blue-400" },
+        ]) {
+          const key = `${inn.inningsId}-bat-${b.playerId}-${t}`
+          if (b.runs >= t && !seenMilestones.current.has(key)) {
+            seenMilestones.current.add(key)
+            showMilestone(label, subLabel, playerName(b.playerId), colorClass)
+            return
+          }
+        }
+      }
+      for (const b of inn.bowling) {
+        for (const { t, label, subLabel, colorClass } of [
+          { t: 5, label: "FIVE-FER!", subLabel: "5 wickets", colorClass: "text-red-500" },
+          { t: 3, label: "3 WICKETS!", subLabel: "3 wickets", colorClass: "text-purple-500" },
+        ]) {
+          const key = `${inn.inningsId}-bowl-${b.bowlerId}-${t}`
+          if (b.wickets >= t && !seenMilestones.current.has(key)) {
+            seenMilestones.current.add(key)
+            showMilestone(label, subLabel, playerName(b.bowlerId), colorClass)
+            return
+          }
+        }
+      }
+    }
+  }, [scorecard]) // eslint-disable-line react-hooks/exhaustive-deps
+
 
   const activeInnings = liveState?.activeInnings
   const activeOver = liveState?.activeOver
   const battingPlayers = determineBattingTeamPlayers()
   const bowlingPlayers = determineBowlingTeamPlayers()
-  const isFirstOver = !liveState?.lastBatsmanId
+  const isFirstOver = batsmanId === null
 
   if (matchError || liveError) {
     return (
@@ -1076,7 +1257,7 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
 
       {phase === "start_innings" && (() => {
         const completedInnings = scorecard?.innings.length ?? 0
-        const isTest = match.format === "Test"
+        const isTest = match.totalOvers === 0
         const allInningsPlayed = !isTest && completedInnings >= 2
         return (
           <Card>
@@ -1090,6 +1271,27 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
                   {tossData.decision === "BAT_FIRST" ? "Batting first" : "Bowling first"}
                 </p>
               )}
+              {isTest && !allInningsPlayed && match && (
+                <div className="space-y-1.5">
+                  <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">Batting Team</p>
+                  <div className="flex gap-2">
+                    {[match.teamAId, match.teamBId].map((tid) => (
+                      <button
+                        key={tid}
+                        type="button"
+                        onClick={() => setManualBattingTeamId(tid)}
+                        className={`px-3 py-1.5 rounded-md text-sm border transition-colors ${
+                          manualBattingTeamId === tid
+                            ? "bg-primary text-primary-foreground border-primary"
+                            : "border-border text-muted-foreground hover:bg-muted"
+                        }`}
+                      >
+                        {teamName(tid)}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
               {allInningsPlayed && (
                 <p className="text-sm text-muted-foreground">Both innings have been completed. Complete the match to record the result.</p>
               )}
@@ -1097,7 +1299,7 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
                 {!allInningsPlayed && (
                   <Button
                     onClick={() => startInningsMutation.mutate()}
-                    disabled={startInningsMutation.isPending}
+                    disabled={startInningsMutation.isPending || (isTest && completedInnings >= 1 && !manualBattingTeamId)}
                   >
                     {startInningsMutation.isPending ? "Starting…" : "Start Innings"}
                   </Button>
@@ -1238,7 +1440,7 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
                 <div className="space-y-2">
                   <Label>Player Out</Label>
                   <div className="flex gap-2">
-                    {[batsmanId, nonStrikerId].filter(Boolean).map((id) => (
+                    {[playerOutId, nonStrikerId].filter(Boolean).map((id) => (
                       <Button
                         key={id!}
                         variant={playerOutId === id ? "default" : "outline"}
@@ -1277,23 +1479,16 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
                     <SelectTrigger>
                       <span className="flex flex-1 text-left text-sm">
                         {newBatsmanId
-                          ? (battingPlayers.find((p) => p.playerId === newBatsmanId)?.name ?? newBatsmanId)
+                          ? (eligibleBatsmen.find((p) => p.playerId === newBatsmanId)?.playerName ?? newBatsmanId)
                           : <span className="text-muted-foreground">Select incoming batsman</span>}
                       </span>
                     </SelectTrigger>
                     <SelectContent>
-                      {battingPlayers
-                        .filter(
-                          (p) =>
-                            p.playerId !== batsmanId &&
-                            p.playerId !== nonStrikerId &&
-                            !dismissedBatsmen.has(p.playerId),
-                        )
-                        .map((p) => (
-                          <SelectItem key={p.playerId} value={p.playerId}>
-                            {p.name}
-                          </SelectItem>
-                        ))}
+                      {eligibleBatsmen.map((p) => (
+                        <SelectItem key={p.playerId} value={p.playerId}>
+                          {p.playerName}
+                        </SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>
@@ -1317,7 +1512,7 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
                       size="sm"
                       onClick={() => setShowEditBatsmen((v) => !v)}
                     >
-                      {showEditBatsmen ? "Done" : "Edit Batsmen"}
+                      {showEditBatsmen ? "Done" : "Edit Batsman"}
                     </Button>
                     <Button
                       variant="outline"
@@ -1517,7 +1712,13 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
                 onClick={() => endInningsMutation.mutate()}
                 disabled={endInningsMutation.isPending}
               >
-                {endInningsMutation.isPending ? "Ending…" : "Start 2nd Innings"}
+                {endInningsMutation.isPending
+                  ? "Ending…"
+                  : (() => {
+                      const n = completedInningsNumberRef.current + 1
+                      const suffix = n === 2 ? "nd" : n === 3 ? "rd" : "th"
+                      return `Start ${n}${suffix} Innings`
+                    })()}
               </Button>
               <Button
                 variant="destructive"
@@ -1768,6 +1969,21 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
             {ballFlash.label}
           </span>
           <span className="text-xs font-medium text-muted-foreground">{ballFlash.description}</span>
+        </div>
+      )}
+
+      {milestone && (
+        <div
+          key={milestone.key}
+          className="fixed inset-x-0 top-1/3 flex justify-center pointer-events-none z-50"
+        >
+          <div className="animate-in fade-in zoom-in-75 duration-300 flex flex-col items-center gap-1 text-center bg-card border border-border rounded-2xl px-10 py-6 shadow-2xl">
+            <span className={`text-5xl font-black tracking-tight ${milestone.colorClass}`}>
+              {milestone.label}
+            </span>
+            <span className="text-lg font-semibold mt-1">{milestone.name}</span>
+            <span className="text-xs text-muted-foreground">{milestone.subLabel}</span>
+          </div>
         </div>
       )}
     </div>
