@@ -46,17 +46,14 @@ function CricketBall({ className = "" }: { className?: string }) {
         </radialGradient>
       </defs>
       <circle cx="40" cy="40" r="38" fill="url(#ballGrad)" />
-      {/* seam lines */}
       <path d="M40 4 Q55 20 55 40 Q55 60 40 76" fill="none" stroke="#fca5a5" strokeWidth="2.5" strokeLinecap="round" />
       <path d="M40 4 Q25 20 25 40 Q25 60 40 76" fill="none" stroke="#fca5a5" strokeWidth="2.5" strokeLinecap="round" />
-      {/* seam stitch marks */}
       {[14, 22, 30, 38, 46, 54, 62].map((y) => (
         <line key={y} x1="35" y1={y} x2="32" y2={y + 3} stroke="#fca5a5" strokeWidth="1.2" strokeLinecap="round" />
       ))}
       {[14, 22, 30, 38, 46, 54, 62].map((y) => (
-        <line key={y} x1="45" y1={y} x2="48" y2={y + 3} stroke="#fca5a5" strokeWidth="1.2" strokeLinecap="round" />
+        <line key={`r${y}`} x1="45" y1={y} x2="48" y2={y + 3} stroke="#fca5a5" strokeWidth="1.2" strokeLinecap="round" />
       ))}
-      {/* shine */}
       <ellipse cx="30" cy="28" rx="7" ry="4" fill="white" opacity="0.15" transform="rotate(-20 30 28)" />
     </svg>
   )
@@ -74,47 +71,17 @@ function CricketBat({ className = "" }: { className?: string }) {
   )
 }
 
-// ---------- Stagger delay classes (avoids inline styles) ----------
-const DELAY_80 = ["delay-0", "delay-75", "delay-150", "delay-200", "delay-300", "delay-300"] as const
-const DELAY_60 = ["delay-0", "delay-75", "delay-100", "delay-150", "delay-200", "delay-300"] as const
-const DELAY_70 = ["delay-0", "delay-75", "delay-150", "delay-200", "delay-300", "delay-300"] as const
-
-// ---------- History timeline data ----------
-const history = [
-  {
-    year: "1598",
-    title: "First Recorded Match",
-    desc: "The earliest reference to cricket appears in a court case in Guildford, England — schoolboys playing the game on common land.",
-  },
-  {
-    year: "1744",
-    title: "Laws of Cricket",
-    desc: "The first written Laws of Cricket are drawn up by the London Cricket Club, standardising the game across England.",
-  },
-  {
-    year: "1877",
-    title: "First Test Match",
-    desc: "Australia defeats England by 45 runs in Melbourne — the inaugural Test match in cricket history begins a 150-year rivalry.",
-  },
-  {
-    year: "1975",
-    title: "First Cricket World Cup",
-    desc: "The inaugural ICC Cricket World Cup is held in England. West Indies, led by Clive Lloyd, lifts the trophy at Lord's.",
-  },
-  {
-    year: "2003",
-    title: "Twenty20 Is Born",
-    desc: "T20 cricket debuts in England's domestic competition, revolutionising the sport with its fast-paced, explosive format.",
-  },
-  {
-    year: "Today",
-    title: "The Digital Age",
-    desc: "Live scoring, analytics, and mobile apps have transformed how fans and scorers experience every ball of the game.",
-  },
+// ---------- Data ----------
+const historyItems = [
+  { year: "1598", title: "First Recorded Match", desc: "The earliest reference to cricket appears in a court case in Guildford, England — schoolboys playing the game on common land." },
+  { year: "1744", title: "Laws of Cricket", desc: "The first written Laws of Cricket are drawn up by the London Cricket Club, standardising the game across England." },
+  { year: "1877", title: "First Test Match", desc: "Australia defeats England by 45 runs in Melbourne — the inaugural Test match in cricket history begins a 150-year rivalry." },
+  { year: "1975", title: "First Cricket World Cup", desc: "The inaugural ICC Cricket World Cup is held in England. West Indies, led by Clive Lloyd, lifts the trophy at Lord's." },
+  { year: "2003", title: "Twenty20 Is Born", desc: "T20 cricket debuts in England's domestic competition, revolutionising the sport with its fast-paced, explosive format." },
+  { year: "Today", title: "The Digital Age", desc: "Live scoring, analytics, and mobile apps have transformed how fans and scorers experience every ball of the game." },
 ]
 
-// ---------- Features ----------
-const features = [
+const featureItems = [
   { icon: Trophy, title: "Host Matches", desc: "Create matches for any format — T20, ODI, or Test — with full team selection and toss management." },
   { icon: Target, title: "Ball-by-Ball Scoring", desc: "Record every delivery: runs, extras, boundaries, and wickets with a streamlined live interface." },
   { icon: Users, title: "Squad Management", desc: "Declare Playing XIs, assign captains, and manage mid-match substitutions seamlessly." },
@@ -123,8 +90,7 @@ const features = [
   { icon: UserCheck, title: "Wicket Workflows", desc: "Guided dismissal entry with fielder selection, new batsman assignment, and automatic over management." },
 ]
 
-// ---------- Steps ----------
-const steps = [
+const stepItems = [
   { n: "01", title: "Register & Login", desc: "Create your account and sign in to access the full scoring suite." },
   { n: "02", title: "Host a Match", desc: "Choose your teams, format, and overs. Schedule it or start it straight away." },
   { n: "03", title: "Declare Squads", desc: "Pick the Playing XI, substitutes, captain, and vice-captain for both sides." },
@@ -133,17 +99,90 @@ const steps = [
   { n: "06", title: "View the Result", desc: "Complete the match to see the full scorecard, win margin, and player stats." },
 ]
 
-// ---------- Reveal section wrapper ----------
+const DELAY_80 = ["delay-0", "delay-75", "delay-150", "delay-200", "delay-300", "delay-300"] as const
+const DELAY_60 = ["delay-0", "delay-75", "delay-100", "delay-150", "delay-200", "delay-300"] as const
+const DELAY_70 = ["delay-0", "delay-75", "delay-150", "delay-200", "delay-300", "delay-300"] as const
+
+// ---------- Reveal wrapper ----------
 function Section({ children, className = "" }: { children: React.ReactNode; className?: string }) {
+  const { ref, visible } = useReveal()
+  return (
+    <div ref={ref} className={`transition-all duration-700 ease-out ${visible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-8"} ${className}`}>
+      {children}
+    </div>
+  )
+}
+
+// ---------- Sub-components (hooks called at component level, not inside .map) ----------
+function TimelineItem({ item, i }: { item: typeof historyItems[0]; i: number }) {
+  const { ref, visible } = useReveal()
+  const isRight = i % 2 === 0
+  return (
+    <div
+      ref={ref}
+      className={`relative flex items-start gap-6 md:gap-0 transition-all duration-700 ease-out ${DELAY_80[i]} ${visible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-6"}`}
+    >
+      <div className="absolute left-6 md:left-1/2 w-3 h-3 rounded-full bg-emerald-500 border-2 border-background md:-translate-x-1.5 mt-1.5 z-10" />
+      <div className={`hidden md:flex w-full ${isRight ? "flex-row" : "flex-row-reverse"}`}>
+        <div className="w-1/2 pr-12 pl-0 text-right flex flex-col items-end">
+          {isRight && (
+            <>
+              <span className="text-emerald-500 font-bold text-xl">{item.year}</span>
+              <h3 className="font-semibold text-lg mt-0.5">{item.title}</h3>
+              <p className="text-muted-foreground text-sm mt-1 max-w-xs">{item.desc}</p>
+            </>
+          )}
+        </div>
+        <div className="w-1/2 pl-12 pr-0 flex flex-col items-start">
+          {!isRight && (
+            <>
+              <span className="text-emerald-500 font-bold text-xl">{item.year}</span>
+              <h3 className="font-semibold text-lg mt-0.5">{item.title}</h3>
+              <p className="text-muted-foreground text-sm mt-1 max-w-xs">{item.desc}</p>
+            </>
+          )}
+        </div>
+      </div>
+      <div className="md:hidden pl-12">
+        <span className="text-emerald-500 font-bold text-lg">{item.year}</span>
+        <h3 className="font-semibold mt-0.5">{item.title}</h3>
+        <p className="text-muted-foreground text-sm mt-1">{item.desc}</p>
+      </div>
+    </div>
+  )
+}
+
+function FeatureCard({ item, i }: { item: typeof featureItems[0]; i: number }) {
+  const { ref, visible } = useReveal()
+  const Icon = item.icon
+  return (
+    <div
+      ref={ref}
+      className={`bg-card border border-border rounded-2xl p-6 transition-all duration-700 ease-out hover:shadow-lg hover:-translate-y-0.5 ${DELAY_60[i]} ${visible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-6"}`}
+    >
+      <div className="w-11 h-11 rounded-xl bg-primary/10 flex items-center justify-center mb-4">
+        <Icon className="w-5 h-5 text-primary" />
+      </div>
+      <h3 className="font-semibold text-lg mb-2">{item.title}</h3>
+      <p className="text-muted-foreground text-sm leading-relaxed">{item.desc}</p>
+    </div>
+  )
+}
+
+function StepCard({ item, i }: { item: typeof stepItems[0]; i: number }) {
   const { ref, visible } = useReveal()
   return (
     <div
       ref={ref}
-      className={`transition-all duration-700 ease-out ${
-        visible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-8"
-      } ${className}`}
+      className={`flex gap-5 p-5 rounded-2xl border border-border bg-card transition-all duration-700 ease-out ${DELAY_70[i]} ${visible ? "opacity-100 translate-x-0" : `opacity-0 ${i % 2 === 0 ? "-translate-x-6" : "translate-x-6"}`}`}
     >
-      {children}
+      <div className="w-12 h-12 rounded-xl bg-primary text-primary-foreground font-bold text-sm flex items-center justify-center shrink-0">
+        {item.n}
+      </div>
+      <div>
+        <h3 className="font-semibold mb-1">{item.title}</h3>
+        <p className="text-muted-foreground text-sm leading-relaxed">{item.desc}</p>
+      </div>
     </div>
   )
 }
@@ -160,11 +199,7 @@ export default function LandingPage() {
   return (
     <div className="min-h-screen bg-background text-foreground">
       {/* ── Sticky Header ── */}
-      <header
-        className={`fixed top-0 inset-x-0 z-50 transition-all duration-300 ${
-          scrolled ? "bg-card/90 backdrop-blur border-b border-border shadow-sm" : "bg-transparent"
-        }`}
-      >
+      <header className={`fixed top-0 inset-x-0 z-50 transition-all duration-300 ${scrolled ? "bg-card/90 backdrop-blur border-b border-border shadow-sm" : "bg-transparent"}`}>
         <div className="max-w-6xl mx-auto px-6 h-16 flex items-center">
           <span className="font-bold text-xl tracking-tight text-primary flex-1">Think Cricket</span>
           <nav className="flex items-center gap-3">
@@ -180,15 +215,12 @@ export default function LandingPage() {
 
       {/* ── Hero ── */}
       <section className="relative min-h-screen flex items-center overflow-hidden">
-        {/* gradient field background */}
         <div className="absolute inset-0 bg-gradient-to-br from-emerald-950 via-green-900 to-emerald-900" />
-        {/* pitch strip */}
         <div className="absolute inset-0 flex items-center justify-center opacity-10">
           <div className="w-48 h-full bg-gradient-to-b from-yellow-200 to-yellow-100 rounded-full blur-2xl" />
         </div>
-        {/* decorative elements */}
         <CricketBall className="absolute -top-10 -right-10 w-72 h-72 opacity-10 animate-spin [animation-duration:40s]" />
-        <CricketBall className="absolute bottom-10 -left-16 w-56 h-56 opacity-8 animate-spin [animation-duration:60s] [animation-direction:reverse]" />
+        <CricketBall className="absolute bottom-10 -left-16 w-56 h-56 opacity-[0.08] animate-spin [animation-duration:60s] [animation-direction:reverse]" />
         <CricketBat className="absolute right-12 bottom-24 w-14 opacity-20 rotate-12 hidden md:block" />
         <CricketBat className="absolute left-8 top-32 w-10 opacity-15 -rotate-12 hidden lg:block" />
 
@@ -250,7 +282,7 @@ export default function LandingPage() {
                     <span>Bumrah</span><span>8-1-38-2</span>
                   </div>
                   <div className="mt-3 flex gap-1.5">
-                    {["1","W","4","0","2","1"].map((b, bi) => (
+                    {["1", "W", "4", "0", "2", "1"].map((b, bi) => (
                       <span key={bi} className={`w-7 h-7 rounded-full text-xs font-bold flex items-center justify-center ${
                         b === "W" ? "bg-red-500/20 text-red-500 border border-red-500/30" :
                         b === "4" ? "bg-blue-500/20 text-blue-400 border border-blue-500/30" :
@@ -264,7 +296,6 @@ export default function LandingPage() {
           </div>
         </div>
 
-        {/* wave divider */}
         <div className="absolute bottom-0 inset-x-0">
           <svg viewBox="0 0 1440 60" className="w-full fill-background">
             <path d="M0,40 C360,0 1080,60 1440,20 L1440,60 L0,60 Z" />
@@ -277,7 +308,7 @@ export default function LandingPage() {
         <div className="max-w-6xl mx-auto px-6 grid grid-cols-2 md:grid-cols-4 gap-6 text-center">
           {[
             { val: "150+", label: "Years of Test Cricket" },
-            { val: "12", label: "Formats Supported" },
+            { val: "3", label: "Formats Supported" },
             { val: "∞", label: "Balls You Can Record" },
             { val: "100%", label: "Free to Use" },
           ].map((s) => (
@@ -298,61 +329,16 @@ export default function LandingPage() {
             </div>
             <h2 className="text-4xl md:text-5xl font-bold tracking-tight">History of Cricket</h2>
             <p className="text-muted-foreground text-lg mt-4 max-w-xl mx-auto">
-              From a schoolyard game in 16th-century England to a global sport followed by billions — cricket's journey is unmatched.
+              From a schoolyard game in 16th-century England to a global sport followed by billions — cricket&apos;s journey is unmatched.
             </p>
           </Section>
 
-          {/* Timeline */}
           <div className="relative">
-            {/* vertical line */}
             <div className="absolute left-6 md:left-1/2 top-0 bottom-0 w-px bg-border md:-translate-x-px" />
-
             <div className="space-y-12">
-              {history.map((item, i) => {
-                const { ref, visible } = useReveal()
-                const isRight = i % 2 === 0
-                return (
-                  <div
-                    key={item.year}
-                    ref={ref}
-                    className={`relative flex items-start gap-6 md:gap-0 transition-all duration-700 ease-out ${DELAY_80[i]} ${
-                      visible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-6"
-                    }`}
-                  >
-                    {/* dot */}
-                    <div className="absolute left-6 md:left-1/2 w-3 h-3 rounded-full bg-emerald-500 border-2 border-background md:-translate-x-1.5 mt-1.5 z-10" />
-
-                    {/* desktop layout */}
-                    <div className={`hidden md:flex w-full ${isRight ? "flex-row" : "flex-row-reverse"}`}>
-                      <div className="w-1/2 pr-12 pl-0 text-right flex flex-col items-end">
-                        {isRight && (
-                          <>
-                            <span className="text-emerald-500 font-bold text-xl">{item.year}</span>
-                            <h3 className="font-semibold text-lg mt-0.5">{item.title}</h3>
-                            <p className="text-muted-foreground text-sm mt-1 max-w-xs">{item.desc}</p>
-                          </>
-                        )}
-                      </div>
-                      <div className="w-1/2 pl-12 pr-0 flex flex-col items-start">
-                        {!isRight && (
-                          <>
-                            <span className="text-emerald-500 font-bold text-xl">{item.year}</span>
-                            <h3 className="font-semibold text-lg mt-0.5">{item.title}</h3>
-                            <p className="text-muted-foreground text-sm mt-1 max-w-xs">{item.desc}</p>
-                          </>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* mobile layout */}
-                    <div className="md:hidden pl-12">
-                      <span className="text-emerald-500 font-bold text-lg">{item.year}</span>
-                      <h3 className="font-semibold mt-0.5">{item.title}</h3>
-                      <p className="text-muted-foreground text-sm mt-1">{item.desc}</p>
-                    </div>
-                  </div>
-                )
-              })}
+              {historyItems.map((item, i) => (
+                <TimelineItem key={item.year} item={item} i={i} />
+              ))}
             </div>
           </div>
         </div>
@@ -370,27 +356,10 @@ export default function LandingPage() {
               A complete scoring suite that keeps up with the pace of the game.
             </p>
           </Section>
-
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
-            {features.map((f, i) => {
-              const { ref, visible } = useReveal()
-              const Icon = f.icon
-              return (
-                <div
-                  key={f.title}
-                  ref={ref}
-                  className={`bg-card border border-border rounded-2xl p-6 transition-all duration-700 ease-out hover:shadow-lg hover:-translate-y-0.5 ${DELAY_60[i]} ${
-                    visible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-6"
-                  }`}
-                >
-                  <div className="w-11 h-11 rounded-xl bg-primary/10 flex items-center justify-center mb-4">
-                    <Icon className="w-5 h-5 text-primary" />
-                  </div>
-                  <h3 className="font-semibold text-lg mb-2">{f.title}</h3>
-                  <p className="text-muted-foreground text-sm leading-relaxed">{f.desc}</p>
-                </div>
-              )
-            })}
+            {featureItems.map((item, i) => (
+              <FeatureCard key={item.title} item={item} i={i} />
+            ))}
           </div>
         </div>
       </section>
@@ -407,33 +376,15 @@ export default function LandingPage() {
               From the first ball to the final result — a live match in six steps.
             </p>
           </Section>
-
           <div className="grid md:grid-cols-2 gap-5">
-            {steps.map((s, i) => {
-              const { ref, visible } = useReveal()
-              return (
-                <div
-                  key={s.n}
-                  ref={ref}
-                  className={`flex gap-5 p-5 rounded-2xl border border-border bg-card transition-all duration-700 ease-out ${DELAY_70[i]} ${
-                    visible ? "opacity-100 translate-x-0" : `opacity-0 ${i % 2 === 0 ? "-translate-x-6" : "translate-x-6"}`
-                  }`}
-                >
-                  <div className="w-12 h-12 rounded-xl bg-primary text-primary-foreground font-bold text-sm flex items-center justify-center shrink-0">
-                    {s.n}
-                  </div>
-                  <div>
-                    <h3 className="font-semibold mb-1">{s.title}</h3>
-                    <p className="text-muted-foreground text-sm leading-relaxed">{s.desc}</p>
-                  </div>
-                </div>
-              )
-            })}
+            {stepItems.map((item, i) => (
+              <StepCard key={item.n} item={item} i={i} />
+            ))}
           </div>
         </div>
       </section>
 
-      {/* ── Formats section ── */}
+      {/* ── Formats strip ── */}
       <section className="py-16 px-6 bg-muted/30 border-y border-border">
         <Section className="max-w-6xl mx-auto">
           <div className="flex flex-wrap items-center justify-center gap-8">
@@ -452,8 +403,7 @@ export default function LandingPage() {
       <section className="relative py-28 px-6 overflow-hidden">
         <div className="absolute inset-0 bg-gradient-to-br from-emerald-950 via-green-900 to-emerald-900" />
         <CricketBall className="absolute -bottom-16 -right-16 w-64 h-64 opacity-10" />
-        <CricketBall className="absolute top-8 -left-12 w-48 h-48 opacity-8" />
-
+        <CricketBall className="absolute top-8 -left-12 w-48 h-48 opacity-[0.08]" />
         <Section className="relative max-w-2xl mx-auto text-center text-white">
           <h2 className="text-4xl md:text-5xl font-bold tracking-tight mb-4">
             Ready to score your first match?

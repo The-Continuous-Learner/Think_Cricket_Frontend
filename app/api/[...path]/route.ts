@@ -1,8 +1,8 @@
 import { request as nodeRequest } from "http"
 import { type NextRequest, NextResponse } from "next/server"
 
-const BACKEND_HOST = "localhost"
-const BACKEND_PORT = 8080
+const BACKEND_HOST = process.env.BACKEND_HOST ?? "localhost"
+const BACKEND_PORT = parseInt(process.env.BACKEND_PORT ?? "8080", 10)
 
 function forward(
   method: string,
