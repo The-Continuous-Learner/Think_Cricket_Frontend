@@ -1,81 +1,50 @@
-import { request as nodeRequest } from "http"
 import { type NextRequest, NextResponse } from "next/server"
 
-const BACKEND_HOST = process.env.BACKEND_HOST ?? "localhost"
-const BACKEND_PORT = parseInt(process.env.BACKEND_PORT ?? "8080", 10)
-
-function forward(
-  method: string,
-  path: string,
-  body?: string,
-): Promise<{ status: number; text: string }> {
-  return new Promise((resolve, reject) => {
-    const req = nodeRequest(
-      {
-        hostname: BACKEND_HOST,
-        port: BACKEND_PORT,
-        path: `/${path}`,
-        method,
-        headers: {
-          "Content-Type": "application/json",
-          ...(body !== undefined ? { "Content-Length": Buffer.byteLength(body) } : {}),
-        },
-      },
-      (res) => {
-        let text = ""
-        res.on("data", (chunk: Buffer) => { text += chunk.toString() })
-        res.on("end", () => resolve({ status: res.statusCode ?? 500, text }))
-      },
-    )
-    req.on("error", reject)
-    if (body !== undefined) req.write(body)
-    req.end()
-  })
-}
+const BACKEND_URL = process.env.BACKEND_URL ?? "http://localhost:8080"
 
 async function proxy(request: NextRequest, path: string[]): Promise<NextResponse> {
+  const url = new URL(`/${path.join("/")}`, BACKEND_URL)
+  request.nextUrl.searchParams.forEach((value, key) => url.searchParams.set(key, value))
+
+  const headers = new Headers(request.headers)
+  headers.delete("host")
+
   let body: string | undefined
-  if (request.method === "GET") {
-    const obj = Object.fromEntries(request.nextUrl.searchParams.entries())
-    if (Object.keys(obj).length > 0) body = JSON.stringify(obj)
-  } else {
-    const text = await request.text()
-    body = text || undefined
+  if (request.method !== "GET" && request.method !== "HEAD") {
+    body = await request.text() || undefined
   }
 
-  let result: { status: number; text: string }
+  let res: Response
   try {
-    result = await forward(request.method, path.join("/"), body)
+    res = await fetch(url.toString(), {
+      method: request.method,
+      headers,
+      body,
+    })
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
-    return new NextResponse(JSON.stringify({ error: msg }), {
-      status: 502,
-      headers: { "Content-Type": "application/json" },
-    })
+    return NextResponse.json({ error: msg }, { status: 502 })
   }
 
-  return new NextResponse(result.text || null, {
-    status: result.status,
-    headers: { "Content-Type": "application/json" },
+  const text = await res.text()
+  return new NextResponse(text || null, {
+    status: res.status,
+    headers: { "Content-Type": res.headers.get("Content-Type") ?? "application/json" },
   })
 }
 
 export async function GET(request: NextRequest, { params }: { params: Promise<{ path: string[] }> }) {
-  const { path } = await params
-  return proxy(request, path)
+  return proxy(request, (await params).path)
 }
 
 export async function POST(request: NextRequest, { params }: { params: Promise<{ path: string[] }> }) {
-  const { path } = await params
-  return proxy(request, path)
+  return proxy(request, (await params).path)
 }
 
 export async function PUT(request: NextRequest, { params }: { params: Promise<{ path: string[] }> }) {
-  const { path } = await params
-  return proxy(request, path)
+  return proxy(request, (await params).path)
 }
 
 export async function DELETE(request: NextRequest, { params }: { params: Promise<{ path: string[] }> }) {
-  const { path } = await params
-  return proxy(request, path)
+  return proxy(request, (await params).path)
 }
