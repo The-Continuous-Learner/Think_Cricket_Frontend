@@ -67,6 +67,7 @@ import type {
   TeamPlayer,
   SubstitutionType,
   EligibleBatsmanEntry,
+  SquadResponse,
 } from "@/lib/types"
 
 type Phase =
