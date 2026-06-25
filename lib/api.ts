@@ -45,6 +45,8 @@ import type {
   SetBatsmenRequest,
   CurrentBatsmenResponse,
   EligibleBatsmanEntry,
+  UndoBallRequest,
+  UndoBallResponse,
 } from "./types"
 
 const BASE = "/api"
@@ -246,3 +248,6 @@ export const getCurrentBatsmen = (sessionToken: string, inningsId: string) =>
 
 export const getEligibleBatsmen = (sessionToken: string, inningsId: string) =>
   req<EligibleBatsmanEntry[]>("/innings/eligible-batsmen", "GET", { sessionToken, inningsId })
+
+export const undoBall = (data: UndoBallRequest) =>
+  req<UndoBallResponse>("/balls/undo", "POST", data)

@@ -537,3 +537,16 @@ export interface EligibleBatsmanEntry {
   playerId: string
   playerName: string
 }
+
+export interface UndoBallRequest {
+  sessionToken: string
+  inningsId: string
+}
+
+export interface UndoBallResponse {
+  undoneBallId: string
+  inningsId: string
+  overReopened: boolean
+  inningsReopened: boolean
+  wicketReversed: boolean
+}

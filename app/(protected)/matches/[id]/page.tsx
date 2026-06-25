@@ -51,6 +51,7 @@ import {
   setBatsmen,
   getCurrentBatsmen,
   getEligibleBatsmen,
+  undoBall,
 } from "@/lib/api"
 import { ApiError } from "@/lib/api"
 import { getSessionToken } from "@/lib/auth"
@@ -270,6 +271,8 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
   const wicketBowlerId = useRef<string | null>(null)
   const currentOverBowlerIdRef = useRef<string | null>(null)
   const completedInningsNumberRef = useRef<number>(1)
+  // Prevents the liveState-triggered computePhase() from overwriting over_complete / innings_complete
+  const overrideComputePhaseRef = useRef(false)
 
   const [showEditBatsmen, setShowEditBatsmen] = useState(false)
   const [showSubForm, setShowSubForm] = useState(false)
@@ -505,7 +508,7 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
   )
 
   useEffect(() => {
-    if (match && liveState && !inSquadPhaseRef.current && !isComputingPhaseRef.current && !pendingWicketRef.current) {
+    if (match && liveState && !inSquadPhaseRef.current && !isComputingPhaseRef.current && !pendingWicketRef.current && !overrideComputePhaseRef.current) {
       computePhase()
     }
   }, [match, liveState]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -630,6 +633,7 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
         setBatsmanId(openerA)
         setNonStrikerId(openerB)
       }
+      overrideComputePhaseRef.current = false
       setPhase("recording")
       resetBallState()
     },
@@ -726,10 +730,12 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
             if (match?.totalOvers === 0) {
               endInningsMutation.mutate()
             } else {
+              overrideComputePhaseRef.current = true
               setPhase("innings_complete")
             }
             resetBallState()
           } else {
+            overrideComputePhaseRef.current = true
             setPhase("over_complete")
             resetBallState()
           }
@@ -812,9 +818,11 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
         if (match?.totalOvers === 0) {
           endInningsMutation.mutate()
         } else {
+          overrideComputePhaseRef.current = true
           setPhase("innings_complete")
         }
       } else if (res.wasOverCompleted) {
+        overrideComputePhaseRef.current = true
         setPhase("over_complete")
       }
       refetchLive()
@@ -866,10 +874,49 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
       const prev = batsmanId
       setBatsmanId(nonStrikerId)
       setNonStrikerId(prev)
+      overrideComputePhaseRef.current = true
       setPhase("over_complete")
       resetBallState()
     },
     onError: (err) => toast.error(err instanceof Error ? err.message : "Failed to end over"),
+  })
+
+  const undoBallMutation = useMutation({
+    mutationFn: async () => {
+      if (!currentInningsId) throw new Error("No active innings")
+      return undoBall({ sessionToken: token, inningsId: currentInningsId })
+    },
+    onSuccess: async (res) => {
+      // Clear pending wicket state — the wicket ball is gone regardless of wicketReversed flag
+      if (pendingWicketRef.current || res.wicketReversed) {
+        pendingWicketRef.current = false
+        pendingWicketBowlingTeamId.current = null
+        wicketBowlerId.current = null
+        sessionStorage.removeItem(`pendingWicket_${matchId}`)
+        setPlayerOutId("")
+        setFielderId("")
+        setNewBatsmanId("")
+        setEligibleBatsmen([])
+      }
+      resetBallState()
+
+      // Always sync batsmen from server
+      try {
+        const pair = await getCurrentBatsmen(token, currentInningsId!)
+        setBatsmanId(pair.strikerId)
+        setNonStrikerId(pair.nonStrikerId)
+      } catch {}
+
+      // Refetch live state (covers innings list / score) and scorecard
+      await refetchLive()
+      refetchScorecard()
+
+      // Clear the override so computePhase() effect can run freely again
+      overrideComputePhaseRef.current = false
+      setPhase("recording")
+      toast.success("Last ball undone")
+    },
+    onError: (err) => toast.error(err instanceof Error ? err.message : "Failed to undo ball"),
   })
 
   const endInningsMutation = useMutation({
@@ -884,6 +931,7 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
       }
     },
     onSuccess: () => {
+      overrideComputePhaseRef.current = false
       setCurrentInningsId(null)
       setCurrentOverId(null)
       setBatsmanId(null)
@@ -1020,6 +1068,12 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
   const battingPlayers = determineBattingTeamPlayers()
   const bowlingPlayers = determineBowlingTeamPlayers()
   const isFirstOver = batsmanId === null
+  // At least one ball exists if we're past the initial state of a live over, or in a phase that follows ball recording
+  const hasBalls =
+    phase === "over_complete" ||
+    phase === "innings_complete" ||
+    (activeInnings?.oversCompleted ?? 0) > 0 ||
+    (activeOver?.legalBallCount ?? 0) > 0
 
   if (matchError || liveError) {
     return (
@@ -1388,7 +1442,7 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
               </Select>
             </div>
 
-            <div className="flex gap-2">
+            <div className="flex gap-2 flex-wrap">
               <Button
                 onClick={() => startOverMutation.mutate()}
                 disabled={
@@ -1400,13 +1454,22 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
                 {startOverMutation.isPending ? "Starting…" : "Start Over"}
               </Button>
               {phase === "over_complete" && (
-                <Button
-                  variant="destructive"
-                  onClick={() => endInningsMutation.mutate()}
-                  disabled={endInningsMutation.isPending}
-                >
-                  {endInningsMutation.isPending ? "Ending…" : "End Innings"}
-                </Button>
+                <>
+                  <Button
+                    variant="destructive"
+                    onClick={() => endInningsMutation.mutate()}
+                    disabled={endInningsMutation.isPending}
+                  >
+                    {endInningsMutation.isPending ? "Ending…" : "End Innings"}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={() => undoBallMutation.mutate()}
+                    disabled={undoBallMutation.isPending}
+                  >
+                    {undoBallMutation.isPending ? "Undoing…" : "Undo Last Ball"}
+                  </Button>
+                </>
               )}
             </div>
           </CardContent>
@@ -1493,12 +1556,21 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
                   </Select>
                 </div>
 
-                <Button
-                  onClick={() => recordWicketMutation.mutate()}
-                  disabled={!playerOutId || (!newBatsmanId && !lastBallRes?.inningsCompleted) || recordWicketMutation.isPending}
-                >
-                  {recordWicketMutation.isPending ? "Recording…" : "Confirm Wicket"}
-                </Button>
+                <div className="flex gap-2">
+                  <Button
+                    onClick={() => recordWicketMutation.mutate()}
+                    disabled={!playerOutId || (!newBatsmanId && !lastBallRes?.inningsCompleted) || recordWicketMutation.isPending}
+                  >
+                    {recordWicketMutation.isPending ? "Recording…" : "Confirm Wicket"}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={() => undoBallMutation.mutate()}
+                    disabled={undoBallMutation.isPending}
+                  >
+                    {undoBallMutation.isPending ? "Undoing…" : "Undo Ball"}
+                  </Button>
+                </div>
               </CardContent>
             </Card>
           ) : (
@@ -1668,7 +1740,7 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
                   )}
                 </div>
 
-                <div className="flex gap-3">
+                <div className="flex gap-3 flex-wrap">
                   <Button
                     onClick={() => recordBallMutation.mutate()}
                     disabled={recordBallMutation.isPending}
@@ -1686,6 +1758,16 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
                   >
                     Swap ⇄
                   </Button>
+                  {hasBalls && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => undoBallMutation.mutate()}
+                      disabled={undoBallMutation.isPending}
+                    >
+                      {undoBallMutation.isPending ? "Undoing…" : "Undo"}
+                    </Button>
+                  )}
                 </div>
 
               </CardContent>
@@ -1694,43 +1776,60 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
         </div>
       )}
 
-      {phase === "innings_complete" && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Innings Complete</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {activeInnings && (
-              <p className="text-muted-foreground text-sm">
-                {teamName(activeInnings.battingTeamId)} scored{" "}
-                {activeInnings.totalRuns}/{activeInnings.wickets} in{" "}
-                {activeInnings.oversCompleted} overs
-              </p>
-            )}
-            <div className="flex gap-2">
-              <Button
-                onClick={() => endInningsMutation.mutate()}
-                disabled={endInningsMutation.isPending}
-              >
-                {endInningsMutation.isPending
-                  ? "Ending…"
-                  : (() => {
-                      const n = completedInningsNumberRef.current + 1
-                      const suffix = n === 2 ? "nd" : n === 3 ? "rd" : "th"
-                      return `Start ${n}${suffix} Innings`
-                    })()}
-              </Button>
-              <Button
-                variant="destructive"
-                onClick={() => completeResultMutation.mutate()}
-                disabled={completeResultMutation.isPending}
-              >
-                {completeResultMutation.isPending ? "Ending…" : "End Match"}
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      )}
+      {phase === "innings_complete" && (() => {
+        const isTest = match.totalOvers === 0
+        const isMatchOver = !isTest && completedInningsNumberRef.current >= 2
+        return (
+          <Card>
+            <CardHeader>
+              <CardTitle>Innings Complete</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {activeInnings && (
+                <p className="text-muted-foreground text-sm">
+                  {teamName(activeInnings.battingTeamId)} scored{" "}
+                  {activeInnings.totalRuns}/{activeInnings.wickets} in{" "}
+                  {activeInnings.oversCompleted} overs
+                </p>
+              )}
+              <div className="flex gap-2 flex-wrap">
+                {!isMatchOver && (
+                  <Button
+                    onClick={() => endInningsMutation.mutate()}
+                    disabled={endInningsMutation.isPending}
+                  >
+                    {endInningsMutation.isPending
+                      ? "Ending…"
+                      : (() => {
+                          const n = completedInningsNumberRef.current + 1
+                          const suffix = n === 2 ? "nd" : n === 3 ? "rd" : "th"
+                          return `Start ${n}${suffix} Innings`
+                        })()}
+                  </Button>
+                )}
+                <Button
+                  variant="outline"
+                  onClick={() => undoBallMutation.mutate()}
+                  disabled={undoBallMutation.isPending}
+                >
+                  {undoBallMutation.isPending ? "Undoing…" : "Undo Last Ball"}
+                </Button>
+                <Button
+                  variant={isMatchOver ? "default" : "destructive"}
+                  onClick={() => completeResultMutation.mutate()}
+                  disabled={completeResultMutation.isPending}
+                >
+                  {completeResultMutation.isPending
+                    ? "Computing…"
+                    : isMatchOver
+                      ? "Complete Match & View Result"
+                      : "End Match"}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        )
+      })()}
 
       {phase === "complete_result" && (
         <Card>
