@@ -16,9 +16,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { hostMatch } from "@/lib/api"
+import { hostMatch, getMyTeams } from "@/lib/api"
 import { getSessionToken } from "@/lib/auth"
-import { getCachedTeams, type CachedTeam } from "@/lib/teams-cache"
+import { getCachedTeams, setCachedTeams, type CachedTeam } from "@/lib/teams-cache"
 
 const PRESET_FORMATS = ["T20", "ODI", "Test", "T10"]
 
@@ -37,6 +37,15 @@ export default function NewMatchPage() {
 
   useEffect(() => {
     setTeams(getCachedTeams())
+    getMyTeams(token).then((serverTeams) => {
+      const mapped: CachedTeam[] = serverTeams.map((t) => ({
+        teamId: t.id,
+        name: t.name,
+        description: t.description,
+      }))
+      setCachedTeams(mapped)
+      setTeams(mapped)
+    }).catch(() => {})
   }, [])
 
   const mutation = useMutation({

@@ -15,10 +15,11 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog"
-import { createTeam, deleteTeam, modifyTeam } from "@/lib/api"
+import { createTeam, deleteTeam, modifyTeam, getMyTeams } from "@/lib/api"
 import { getSessionToken } from "@/lib/auth"
 import {
   getCachedTeams,
+  setCachedTeams,
   upsertCachedTeam,
   removeCachedTeam,
   type CachedTeam,
@@ -35,6 +36,15 @@ export default function TeamsPage() {
 
   useEffect(() => {
     setTeams(getCachedTeams())
+    getMyTeams(token).then((serverTeams) => {
+      const mapped: CachedTeam[] = serverTeams.map((t) => ({
+        teamId: t.id,
+        name: t.name,
+        description: t.description,
+      }))
+      setCachedTeams(mapped)
+      setTeams(mapped)
+    }).catch(() => {})
   }, [])
 
   const createMutation = useMutation({

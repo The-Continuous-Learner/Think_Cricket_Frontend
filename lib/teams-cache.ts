@@ -26,6 +26,10 @@ export function removeCachedTeam(teamId: string) {
   localStorage.setItem(CACHE_KEY, JSON.stringify(teams))
 }
 
+export function setCachedTeams(teams: CachedTeam[]) {
+  localStorage.setItem(CACHE_KEY, JSON.stringify(teams))
+}
+
 export function getCachedTeamName(teamId: string): string {
   const team = getCachedTeams().find((t) => t.teamId === teamId)
   return team?.name ?? teamId.slice(0, 8) + "…"
